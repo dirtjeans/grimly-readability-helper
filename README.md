@@ -66,6 +66,17 @@ If you're already running Foundry Local, you can point Grimly at any available m
 | Conversational | Rewrites in a more natural, spoken tone |
 | Custom | Apply your own editing instruction |
 
+## Privacy
+
+Grimly is designed to keep your text on your machine. The privacy claim has a verifiable shape:
+
+- **All inference traffic is localhost.** Every HTTP request to the language model goes to `http://127.0.0.1:51318` (the Foundry Local API). Your selected text never leaves your computer.
+- **No telemetry, no analytics, no crash reporting** — Grimly doesn't send anything anywhere. Grep the source for `HttpClient` / `URLSession` calls to verify; you'll find only localhost endpoints and one exception (below).
+- **One non-local network call: first-run installer download.** The first time you launch Grimly on a fresh machine, it downloads the Foundry Local installer from a hardcoded HTTPS URL on Microsoft's official GitHub releases page. After that, all traffic is localhost. If you'd rather install Foundry Local yourself, point Grimly at it through Settings and skip the installer entirely.
+- **Settings live on your machine.** Configuration is in `%APPDATA%\Grimly\settings.json` (Windows) or `~/Library/Application Support/Grimly/settings.json` (macOS). Plain JSON. Inspect, edit, or delete at will.
+
+To report a security issue, see [SECURITY.md](SECURITY.md).
+
 ## Built with
 
 - [Microsoft Foundry Local](https://github.com/microsoft/foundry) — local LLM runtime

@@ -5,6 +5,9 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <UseWPF>true</UseWPF>
+    <!-- Required by the [LibraryImport] source generator used for Win32
+         P/Invoke (hotkey registration, UIA selection capture). No
+         hand-written unsafe blocks exist anywhere in the codebase. -->
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <RootNamespace>Grimly</RootNamespace>
     <AssemblyName>Grimly.Core</AssemblyName>
