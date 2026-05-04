@@ -1,0 +1,55 @@
+name: Release
+
+# Build and publish Windows binaries when a version tag is pushed
+# (e.g. `git tag v1.0.0 && git push origin v1.0.0`).
+#
+# Builds two single-file self-contained .exe files (ARM64 + x64) and
+# attaches them to the matching GitHub Release. The Mac binary still
+# needs to be built locally with Xcode and uploaded by hand — see
+# README.md for the manual command.
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+jobs:
+  windows-build:
+    runs-on: windows-latest
+    permissions:
+      contents: write   # needed by softprops/action-gh-release to attach assets
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET 9
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '9.0.x'
+
+      - name: Publish ARM64
+        run: |
+          dotnet publish src/Grimly/Grimly.csproj `
+            -c Release -r win-arm64 --self-contained `
+            -p:PublishSingleFile=true `
+            -p:IncludeNativeLibrariesForSelfExtract=true `
+            -p:EnableCompressionInSingleFile=true `
+            -o publish-arm64
+          Move-Item publish-arm64/Grimly.exe publish-arm64/GrimlyARM64.exe
+
+      - name: Publish x64
+        run: |
+          dotnet publish src/Grimly/Grimly.csproj `
+            -c Release -r win-x64 --self-contained `
+            -p:PublishSingleFile=true `
+            -p:IncludeNativeLibrariesForSelfExtract=true `
+            -p:EnableCompressionInSingleFile=true `
+            -o publish-x64
+          Move-Item publish-x64/Grimly.exe publish-x64/GrimlyX64.exe
+
+      - name: Create release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            publish-arm64/GrimlyARM64.exe
+            publish-x64/GrimlyX64.exe
+          draft: true   # opens as a draft so you can attach the Mac .zip and edit notes before publishing
+          generate_release_notes: true

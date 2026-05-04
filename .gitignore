@@ -1,0 +1,35 @@
+# ─── .NET ──────────────────────────────────────────────────────────────
+bin/
+obj/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+.vs/
+[Pp]ackages/
+[Tt]est[Rr]esult*/
+[Bb]uild[Ll]og.*
+
+# Publish output
+publish/
+publish-*/
+
+# ─── Xcode / macOS ─────────────────────────────────────────────────────
+**/*.xcworkspace/xcuserdata/
+**/*.xcodeproj/xcuserdata/
+**/*.xcodeproj/project.xcworkspace/xcuserdata/
+**/DerivedData/
+**/build/
+*.dSYM.zip
+*.dSYM
+.DS_Store
+
+# ─── Editors ───────────────────────────────────────────────────────────
+.idea/
+.vscode/
+*.swp
+*~
+
+# ─── Logs / temp ───────────────────────────────────────────────────────
+*.log
+*.tmp

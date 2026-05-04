@@ -1,0 +1,142 @@
+<Window x:Class="Grimly.Views.InstallProgressWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Grimly - Installing Foundry Local"
+        Width="560" SizeToContent="Height"
+        MaxHeight="600"
+        WindowStartupLocation="CenterScreen"
+        ResizeMode="NoResize"
+        Background="{DynamicResource WindowBackgroundBrush}">
+
+    <Window.Resources>
+        <BooleanToVisibilityConverter x:Key="BoolToVis"/>
+
+        <Style x:Key="ActionButton" TargetType="Button">
+            <Setter Property="Padding" Value="16,8"/>
+            <Setter Property="FontSize" Value="13"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="border"
+                                Background="{TemplateBinding Background}"
+                                CornerRadius="6"
+                                Padding="{TemplateBinding Padding}">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="border" Property="Opacity" Value="0.85"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+    </Window.Resources>
+
+    <StackPanel Margin="24">
+        <!-- Icon/header -->
+        <TextBlock Text="Installing Foundry Local"
+                   Foreground="{DynamicResource PrimaryForegroundBrush}" FontSize="18" FontWeight="SemiBold"
+                   Margin="0,0,0,4"/>
+        <TextBlock Text="Setting up everything you need to run AI models locally."
+                   Foreground="{DynamicResource SubtleForegroundBrush}" FontSize="12" TextWrapping="Wrap"
+                   Margin="0,0,0,16"/>
+
+        <!-- Step label -->
+        <TextBlock Text="{Binding StepText}"
+                   Foreground="{DynamicResource BodyForegroundBrush}" FontSize="13"
+                   TextWrapping="Wrap"
+                   Margin="0,0,0,8"/>
+
+        <!-- Progress bar (indeterminate during install) -->
+        <ProgressBar IsIndeterminate="True" Height="6"
+                     Visibility="{Binding IsInstalling, Converter={StaticResource BoolToVis}}"
+                     Margin="0,0,0,12"/>
+
+        <!-- Success indicator -->
+        <Border Visibility="{Binding IsSuccess, Converter={StaticResource BoolToVis}}"
+                Background="{DynamicResource SuccessBannerBackgroundBrush}" CornerRadius="6" Padding="12" Margin="0,0,0,12">
+            <TextBlock Text="✓ Ready! Press Ctrl+Alt+G to begin."
+                       Foreground="{DynamicResource SuccessBannerForegroundBrush}" FontSize="13" FontWeight="SemiBold"/>
+        </Border>
+
+        <!-- Failure indicator -->
+        <Border Visibility="{Binding IsFailed, Converter={StaticResource BoolToVis}}"
+                Background="{DynamicResource FailureBannerBackgroundBrush}" CornerRadius="6" Padding="12" Margin="0,0,0,12">
+            <TextBlock Text="✗ Installation failed. Check the log below for details."
+                       Foreground="{DynamicResource FailureBannerForegroundBrush}" FontSize="13" FontWeight="SemiBold"
+                       TextWrapping="Wrap"/>
+        </Border>
+
+        <!-- Show/hide details toggle -->
+        <Button HorizontalAlignment="Left"
+                Background="Transparent" Foreground="{DynamicResource SubtleForegroundBrush}"
+                BorderThickness="0" FontSize="11"
+                Cursor="Hand" Padding="0,4"
+                Command="{Binding ToggleDetailsCommand}">
+            <Button.Template>
+                <ControlTemplate TargetType="Button">
+                    <TextBlock x:Name="label"
+                               Text="Show details"
+                               Foreground="{TemplateBinding Foreground}"
+                               TextDecorations="Underline"/>
+                    <ControlTemplate.Triggers>
+                        <DataTrigger Binding="{Binding DetailsExpanded}" Value="True">
+                            <Setter TargetName="label" Property="Text" Value="Hide details"/>
+                        </DataTrigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Button.Template>
+        </Button>
+
+        <!-- Log output (collapsible) -->
+        <Border Background="{DynamicResource LogBackgroundBrush}"
+                BorderBrush="{DynamicResource LogBorderBrush}" BorderThickness="1"
+                CornerRadius="4"
+                Margin="0,6,0,0"
+                Visibility="{Binding DetailsExpanded, Converter={StaticResource BoolToVis}}">
+            <ScrollViewer x:Name="LogScroller"
+                          VerticalScrollBarVisibility="Auto"
+                          MaxHeight="250">
+                <TextBox Text="{Binding LogText, Mode=OneWay}"
+                         x:Name="LogTextBox"
+                         IsReadOnly="True"
+                         Background="Transparent"
+                         Foreground="{DynamicResource LogForegroundBrush}"
+                         BorderThickness="0"
+                         FontFamily="Consolas"
+                         FontSize="11"
+                         Padding="10"
+                         TextWrapping="NoWrap"
+                         AcceptsReturn="True"
+                         TextChanged="LogTextBox_TextChanged"/>
+            </ScrollViewer>
+        </Border>
+
+        <!-- Buttons -->
+        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,16,0,0">
+            <Button Content="Cancel"
+                    Background="{DynamicResource DismissButtonBackgroundBrush}" Foreground="{DynamicResource DismissButtonForegroundBrush}"
+                    Style="{StaticResource ActionButton}"
+                    Command="{Binding CancelCommand}"
+                    Visibility="{Binding IsInstalling, Converter={StaticResource BoolToVis}}"/>
+            <Button Content="Close"
+                    Background="{DynamicResource AcceptButtonBackgroundBrush}" Foreground="{DynamicResource AcceptButtonForegroundBrush}"
+                    Command="{Binding CloseCommand}">
+                <Button.Style>
+                    <Style TargetType="Button" BasedOn="{StaticResource ActionButton}">
+                        <Setter Property="Visibility" Value="Collapsed"/>
+                        <Style.Triggers>
+                            <DataTrigger Binding="{Binding IsInstalling}" Value="False">
+                                <Setter Property="Visibility" Value="Visible"/>
+                            </DataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </Button.Style>
+            </Button>
+        </StackPanel>
+    </StackPanel>
+</Window>

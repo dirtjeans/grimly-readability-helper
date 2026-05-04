@@ -1,0 +1,36 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net9.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UseWPF>true</UseWPF>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <RootNamespace>Grimly</RootNamespace>
+    <AssemblyName>Grimly.Core</AssemblyName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.0" />
+    <PackageReference Include="Hardcodet.NotifyIcon.Wpf" Version="2.0.1" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="9.0.0" />
+    <PackageReference Include="Microsoft.Extensions.Http" Version="9.0.0" />
+    <PackageReference Include="WeCantSpell.Hunspell" Version="7.0.1" />
+  </ItemGroup>
+
+  <!-- en_US Hunspell dictionary, embedded into the assembly so it ships
+       inside the single-file exe with no external file dependency.
+       Source: https://github.com/wooorm/dictionaries (MIT-licensed).
+       Loaded at startup by SpellCheckerService. -->
+  <ItemGroup>
+    <EmbeddedResource Include="Dictionaries\en_US.aff" />
+    <EmbeddedResource Include="Dictionaries\en_US.dic" />
+  </ItemGroup>
+
+  <!-- UI Automation (UIAutomationClient, UIAutomationTypes) is provided
+       implicitly by the Microsoft.WindowsDesktop.App.WPF framework reference
+       that UseWPF=true enables — no explicit Reference needed.
+       Used by ClipboardService to read selected text directly from the
+       target app's accessibility tree (no keystroke simulation). -->
+
+</Project>

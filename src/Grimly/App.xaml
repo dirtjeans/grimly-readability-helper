@@ -1,0 +1,14 @@
+<Application x:Class="Grimly.App"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             ShutdownMode="OnExplicitShutdown">
+    <Application.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <!-- Grimly's dark theme. Lives in Grimly.Core so
+                     both apps can ship from the same view set. -->
+                <ResourceDictionary Source="/Grimly.Core;component/Themes/GrimlyTheme.xaml"/>
+            </ResourceDictionary.MergedDictionaries>
+        </ResourceDictionary>
+    </Application.Resources>
+</Application>
