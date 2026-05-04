@@ -1,79 +1,84 @@
-# Grimly Readability Helper
+# Grimly
 
-A small desktop utility that runs a local LLM ([Microsoft Foundry Local](https://learn.microsoft.com/en-us/azure/ai-foundry/foundry-local/)) against text you've selected anywhere on your machine — no cloud, no API keys, no telemetry. Plus a live grammar / spelling / punctuation panel that flags the kind of mechanical mistakes an LLM is bad at noticing.
+**AI-powered readability editing that runs entirely on your machine.**
 
-## Features
+Grimly helps you make your writing clearer and easier to read. Select text in any app, hit a hotkey, and get instant readability scoring, typo flagging, and targeted AI rewrites — all powered by a local language model. Your copy never leaves your computer.
 
-- **Edit anywhere.** Select text in any app, hit the hotkey (default `Ctrl+Alt+G`), and a small editor popup appears with your selection ready for revision.
-- **Local LLM, no cloud.** All inference runs on-device through Foundry Local. Models like `phi-4-mini` (CPU) or `qwen2.5-7b-instruct-quantized` (NPU/GPU) work well.
-- **Live grammar checker.** A deterministic checker runs ~400 ms after you stop typing, flagging doubled words, lowercase "i", `would of`, `your's`, repeated punctuation, missing leading zeros, and more — without an LLM round-trip.
-- **Quick Fix.** One click bundles every deterministic fix into a reviewable diff (accept/reject per change, just like the LLM passes).
-- **Word-accurate readability.** If Microsoft Word is installed, the popup can compute the same Flesch reading-ease score Word displays. Otherwise it shows a fast local estimate.
+![Grimly screenshot](docs/screenshot.png)
 
-## Install
+## Why Grimly?
 
-### Windows (ARM64 or x64)
+Readability is one of the hardest parts of writing well. Most tools focus on grammar. Grimly focuses on clarity.
 
-1. Download the matching `.exe` from the [latest release](../../releases/latest):
-   - `GrimlyARM64.exe` for Snapdragon / Surface Pro X / other ARM64 devices
-   - `GrimlyX64.exe` for everything else
-2. Run it. (Windows SmartScreen will warn the first time — click "More info" → "Run anyway" since the binary isn't code-signed.)
-3. Install Foundry Local via the bundled installer prompt, or follow the [Microsoft instructions](https://learn.microsoft.com/en-us/azure/ai-foundry/foundry-local/get-started).
+You pick the technique — shorter sentences, active voice, cut filler, drop jargon, revise nominalizations, lead with the point — and Grimly applies it. You see exactly how each change affects your Flesch Reading Ease score before you accept it.
 
-### macOS (Apple Silicon)
+Because Grimly runs a local LLM on your machine, there are no usage limits, no API keys, and no privacy concerns. Write about confidential products, unreleased strategies, or client work without sending a word to a third-party server.
 
-1. Download `Grimly-macOS.zip` from the [latest release](../../releases/latest), unzip it.
-2. Move `Grimly.app` to `/Applications`.
-3. The first time you launch it, macOS Gatekeeper will block it (the app isn't notarized). Right-click the `.app` → "Open" → "Open" in the dialog. After that, normal launching works.
-4. Grant Accessibility permissions when prompted (System Settings → Privacy & Security → Accessibility) so Grimly can read selected text from other apps.
+## How it works
 
-## Build from source
+1. **Select text** in any app.
+2. **Activate Grimly** with a hotkey or the floating icon.
+3. **See your baseline** — Flesch Reading Ease score, word count, character count, and inline typo highlighting.
+4. **Pick a technique** — choose from 16 targeted writing moves like Shorter Sentences, Active Voice, Cut Hedges, Concrete Nouns, Unpack Terms, Drop Jargon, Conversational, or Custom.
+5. **Review the rewrite** — Grimly shows the improved text and the updated readability score side by side.
+6. **Paste, copy, or dismiss** — one click puts the revised text back where it came from.
 
-### Prerequisites
+Want a second opinion? **Match Word** runs your text through Microsoft Word's readability calculator, which scores things a bit differently.
 
-- **.NET 9 SDK** (Windows build)
-- **Xcode 15+** (macOS build)
+## Getting started
 
-### Windows
+### Installation
 
-```powershell
-git clone https://github.com/<you>/grimly-readability-helper.git
-cd grimly-readability-helper
-dotnet publish src/Grimly/Grimly.csproj -c Release -r win-arm64 --self-contained `
-  -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true `
-  -p:EnableCompressionInSingleFile=true -o publish-arm64
-```
+Download the latest release for your platform from the [Releases page](../../releases/latest):
 
-The single-file `.exe` will be at `publish-arm64/Grimly.exe`. Replace `win-arm64` with `win-x64` for the Intel build.
+- **Windows (x64)** — `grimly-win-x64.zip`
+- **Windows (ARM64)** — `grimly-win-arm64.zip`
+- **macOS** — `grimly-macos.zip`
 
-### macOS
+### First run
 
-```bash
-cd mac/Grimly
-xcodebuild -project Grimly.xcodeproj -scheme Grimly -configuration Release \
-  -derivedDataPath build clean build
-# The built .app is at build/Build/Products/Release/Grimly.app
-ditto -c -k --keepParent build/Build/Products/Release/Grimly.app Grimly-macOS.zip
-```
+The first time you launch Grimly, it automatically downloads and configures [Microsoft Foundry Local](https://github.com/microsoft/foundry) and loads a default model appropriate for your hardware. No manual setup required.
 
-## Releasing
+On ARM64 devices with a Qualcomm Neural Processing Unit, Grimly runs on the NPU by default for faster inference and lower battery draw.
 
-Push a version tag and the [release workflow](.github/workflows/release.yml) will build both Windows binaries and create a draft release with them attached:
+### Advanced: choose your own model
 
-```bash
-git tag v1.0.0
-git push origin v1.0.0
-```
+If you're already running Foundry Local, you can point Grimly at any available model through **Settings > Model**.
 
-The Mac binary has to be built locally (no signing secrets in CI) and added to the draft release manually.
+## The 16 techniques
 
-## Acknowledgements
+| Technique | What it does |
+|---|---|
+| Fix Grammar | Corrects grammar, spelling, and punctuation |
+| Shorter Sentences | Breaks long sentences into shorter ones |
+| Lead With Point | Moves the main idea to the front of each sentence |
+| Shorter Words | Replaces complex words with simpler alternatives |
+| Cut Filler | Removes unnecessary words and phrases |
+| Active Voice | Converts passive constructions to active voice |
+| Active Verbs | Replaces weak verbs and nominalizations with stronger verbs |
+| Revise Nominalizations | Turns noun forms back into their verb equivalents |
+| Cut Gerunds | Reduces overuse of -ing constructions |
+| Concrete Nouns | Replaces vague nouns with specific, concrete ones |
+| Cut Hedges | Removes hedging language (might, perhaps, somewhat) |
+| Unpack Terms | Expands acronyms and technical shorthand |
+| Drop Jargon | Replaces jargon with plain-language equivalents |
+| Bullet Points | Restructures dense text into bulleted lists |
+| Conversational | Rewrites in a more natural, spoken tone |
+| Custom | Apply your own editing instruction |
 
-- [Hunspell en_US dictionary](https://github.com/wooorm/dictionaries) — MIT
-- [WeCantSpell.Hunspell](https://github.com/aarondandy/WeCantSpell.Hunspell) — MIT
-- [CommunityToolkit.Mvvm](https://github.com/CommunityToolkit/dotnet) — MIT
-- [Hardcodet.NotifyIcon.Wpf](https://github.com/hardcodet/wpf-notifyicon) — CPOL
+## Built with
+
+- [Microsoft Foundry Local](https://github.com/microsoft/foundry) — local LLM runtime
+- Flesch Reading Ease scoring engine
+
+## Why I built this
+
+I lead a content team and edit a lot of technical copy — blog posts, white papers, reports, and a weekly cybersecurity podcast. Readability is the thing I push on hardest and the thing that's hardest to teach. I wanted a tool that could apply specific writing techniques on demand, show the readability impact in real time, and do it all without sending sensitive pre-publication copy to a cloud API. Nothing I found did all three, so I built it.
+
+## Contributing
+
+Contributions are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 
 ## License
 
-[MIT](LICENSE) — Copyright © 2026 Kenneth Spencer Brown
+[MIT](LICENSE)
