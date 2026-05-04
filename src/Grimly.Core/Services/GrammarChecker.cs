@@ -210,7 +210,7 @@ public sealed class GrammarChecker : IGrammarChecker
         {
             var fix = m.Value[0] + " ";
             results.Add(new Violation(
-                "Spacing", m.Value.TrimEnd(), "One space after periods/colons (§5), not two.",
+                "Spacing", m.Value, "One space after periods/colons, not two.",
                 Start: m.Index, Length: m.Length, AutoFix: fix));
         }
 
@@ -384,14 +384,14 @@ public sealed class GrammarChecker : IGrammarChecker
 
         // Weak adverbs — flag and auto-fix by deletion. The match span includes
         // the trailing whitespace, so deleting it leaves the surrounding text
-        // joined cleanly ("the very fast cat" → "the fast cat").
+        // joined cleanly ("the very fast cat" → "the fast cat"). Quote must
+        // equal the full matched span so the stale-span guard in
+        // ApplyAutoFixes recognizes the match.
         foreach (Match m in RxWeakAdverb.Matches(text))
         {
-            // Strip the trailing whitespace from the displayed quote so the
-            // panel shows just "very" rather than "very ".
             var word = m.Groups[1].Value;
             results.Add(new Violation(
-                "Weak Adverb", word,
+                "Weak Adverb", m.Value,
                 $"\"{word}\" is usually filler — try the sentence without it.",
                 Start: m.Index, Length: m.Length, AutoFix: ""));
         }
