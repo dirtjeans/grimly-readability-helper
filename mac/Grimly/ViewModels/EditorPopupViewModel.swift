@@ -36,6 +36,7 @@ class EditorPopupViewModel: ObservableObject {
     private let foundryManager: FoundryManager
     private let clipboardService: ClipboardService
     private let diffService: TextDiffService
+    private let codeChecker = GrammarChecker()
     private let readabilityService = ReadabilityService()
     private var currentTask: Task<Void, Never>?
     private var undoStack: [String] = []
@@ -58,6 +59,17 @@ class EditorPopupViewModel: ObservableObject {
     @Published var wordCount: Int = 0
     @Published var charCount: Int = 0
 
+    /// Live deterministic violations (grammar, spelling, punctuation, …).
+    /// Re-populated ~400 ms after `workingText` last changed.
+    @Published var violations: [Violation] = []
+    var hasViolations: Bool { !violations.isEmpty }
+    /// True when at least one violation has a deterministic auto-fix —
+    /// drives Quick Fix button visibility.
+    var hasAutoFixableViolations: Bool { violations.contains(where: { $0.canAutoFix }) }
+
+    /// Hint text shown above the violations list.
+    let quickFixHint = "Click Quick Fix for the mechanical corrections. Use Fix Grammar for AI-assisted revisions of the rest."
+
     var previousApp: NSRunningApplication?
     var onRequestClose: (() -> Void)?
     var onReviewSegmentsChanged: (() -> Void)?
@@ -75,6 +87,47 @@ class EditorPopupViewModel: ObservableObject {
             .debounce(for: .milliseconds(200), scheduler: RunLoop.main)
             .sink { [weak self] _ in self?.updateReadability() }
             .store(in: &cancellables)
+
+        // Live deterministic grammar / spelling / punctuation check —
+        // independent debounce so the panel updates ~400 ms after the user
+        // stops typing. Mirrors the Windows VM. The checker runs on the
+        // main actor; for our text volumes (a few thousand words at most)
+        // the regex sweep is well under a frame budget.
+        $workingText
+            .debounce(for: .milliseconds(400), scheduler: RunLoop.main)
+            .sink { [weak self] text in self?.runLiveCheck(on: text) }
+            .store(in: &cancellables)
+    }
+
+    private func runLiveCheck(on text: String) {
+        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            violations = []
+            return
+        }
+        violations = codeChecker.check(text)
+    }
+
+    /// Quick Fix — apply every deterministic fix the live checker found, as
+    /// a single reviewable diff. Mirrors the accept/reject UX used by Fix
+    /// Grammar so the user reviews before committing rather than seeing
+    /// changes applied silently.
+    func applyQuickFixes() {
+        let fixed = codeChecker.applyAutoFixes(workingText)
+        guard fixed != workingText else { return }
+
+        preRevisionText = workingText
+        let diffs = diffService.computeDiff(original: preRevisionText, corrected: fixed)
+        let segments = diffService.groupIntoSegments(diffs)
+        reviewSegments = segments
+
+        if segments.contains(where: { $0.isChange }) {
+            undoStack.append(preRevisionText)
+            canUndo = true
+            isReviewing = true
+            hasResult = true
+            rebuildWorkingText()
+            onReviewSegmentsChanged?()
+        }
     }
 
     func refreshConnectionStatus() {

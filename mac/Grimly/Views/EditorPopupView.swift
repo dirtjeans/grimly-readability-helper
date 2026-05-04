@@ -181,6 +181,17 @@ struct EditorPopupView: View {
                 .padding(.bottom, 8)
             }
 
+            // Live grammar / spelling / punctuation panel
+            if viewModel.hasViolations {
+                ViolationsPanel(
+                    violations: viewModel.violations,
+                    hasAutoFixable: viewModel.hasAutoFixableViolations,
+                    hint: viewModel.quickFixHint,
+                    onQuickFix: { viewModel.applyQuickFixes() }
+                )
+                .padding(.bottom, 8)
+            }
+
             // Error message
             if let error = viewModel.errorMessage {
                 Text(error)
@@ -326,5 +337,101 @@ struct FlowLayout: Layout {
         }
 
         return (positions, CGSize(width: maxWidth, height: totalHeight))
+    }
+}
+
+// MARK: - Violations panel
+
+/// Displayed below the working-text area when the live grammar checker
+/// finds anything. Shows each violation as a labeled chip + quote +
+/// explanation, with an italic hint pointing at the AI Fix Grammar button
+/// for items the deterministic checker can't auto-fix. The Quick Fix
+/// button only appears when at least one violation has a deterministic fix.
+struct ViolationsPanel: View {
+    let violations: [Violation]
+    let hasAutoFixable: Bool
+    let hint: String
+    let onQuickFix: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 8) {
+                Text("Style check")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundColor(.primary)
+                Spacer()
+                if !violations.isEmpty {
+                    Text("\(violations.count)")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 1)
+                        .background(Color(red: 0.86, green: 0.42, blue: 0.20))
+                        .cornerRadius(8)
+                }
+                if hasAutoFixable {
+                    Button("Quick Fix", action: onQuickFix)
+                        .font(.system(size: 11, weight: .semibold))
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 3)
+                        .background(Color(white: 0.30))
+                        .foregroundColor(.white)
+                        .cornerRadius(4)
+                        .buttonStyle(.plain)
+                        .help("Apply all mechanical fixes — review with accept/reject")
+                }
+            }
+
+            Text(hint)
+                .font(.system(size: 10))
+                .italic()
+                .foregroundColor(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            ScrollView {
+                VStack(alignment: .leading, spacing: 6) {
+                    ForEach(violations) { v in
+                        ViolationRow(violation: v)
+                    }
+                }
+                .padding(.vertical, 4)
+            }
+            .frame(maxHeight: 160)
+        }
+        .padding(10)
+        .background(Color(white: 0.18))
+        .overlay(RoundedRectangle(cornerRadius: 6).stroke(Color(white: 0.30), lineWidth: 1))
+        .cornerRadius(6)
+    }
+}
+
+struct ViolationRow: View {
+    let violation: Violation
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 8) {
+            Text(violation.category)
+                .font(.system(size: 10, weight: .semibold))
+                .foregroundColor(.white)
+                .padding(.horizontal, 6)
+                .padding(.vertical, 2)
+                .background(Color(red: 0.86, green: 0.42, blue: 0.20))
+                .cornerRadius(4)
+                .fixedSize()
+
+            VStack(alignment: .leading, spacing: 2) {
+                if !violation.quote.isEmpty {
+                    Text("\u{201C}\(violation.quote)\u{201D}")
+                        .font(.system(size: 11))
+                        .italic()
+                        .foregroundColor(.primary)
+                }
+                Text(violation.explanation)
+                    .font(.system(size: 11))
+                    .foregroundColor(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 0)
+        }
     }
 }
