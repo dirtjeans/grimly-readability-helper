@@ -100,6 +100,21 @@ public sealed class GrammarChecker : IGrammarChecker
     private static readonly Regex RxLowerSentenceStart =
         new(@"(?<=[.!?]\s)([a-z])", RegexOptions.Compiled);
 
+    // Weak adverbs that almost always read as filler. The list is deliberately
+    // short — these specific words are rarely load-bearing in good prose:
+    //   "very fast"        → "fast"
+    //   "really excellent" → "excellent"
+    //   "actually works"   → "works"
+    //   "basically done"   → "done"
+    //   "simply press"     → "press"
+    // Adverbs like "not", "never", "well", "soon", "literally" are excluded
+    // because they often carry meaning. The match consumes the trailing
+    // whitespace so the auto-fix is just an empty string and the surrounding
+    // text closes up cleanly.
+    private static readonly Regex RxWeakAdverb =
+        new(@"\b(very|really|actually|basically|simply)\s+",
+            RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
     // ALL CAPS as a way of shouting / emphasis — flagged but not auto-fixed
     // (the surrounding sentence determines the right replacement).
     private static readonly Regex RxAllCaps =
@@ -365,6 +380,20 @@ public sealed class GrammarChecker : IGrammarChecker
                 "Capitalization", m.Value,
                 "Capitalize the first letter of a sentence.",
                 Start: m.Index, Length: m.Length, AutoFix: fix));
+        }
+
+        // Weak adverbs — flag and auto-fix by deletion. The match span includes
+        // the trailing whitespace, so deleting it leaves the surrounding text
+        // joined cleanly ("the very fast cat" → "the fast cat").
+        foreach (Match m in RxWeakAdverb.Matches(text))
+        {
+            // Strip the trailing whitespace from the displayed quote so the
+            // panel shows just "very" rather than "very ".
+            var word = m.Groups[1].Value;
+            results.Add(new Violation(
+                "Weak Adverb", word,
+                $"\"{word}\" is usually filler — try the sentence without it.",
+                Start: m.Index, Length: m.Length, AutoFix: ""));
         }
 
         // ─── Spell check (last so prior rewrites are reflected) ───
