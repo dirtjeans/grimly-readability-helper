@@ -31,9 +31,9 @@ Want a second opinion? **Match Word** runs your text through Microsoft Word's re
 
 Download the latest release for your platform from the [Releases page](../../releases/latest):
 
-- **Windows (x64)** — `grimly-win-x64.zip`
-- **Windows (ARM64)** — `grimly-win-arm64.zip`
-- **macOS** — `grimly-macos.zip`
+- **Windows (x64)** — `GrimlyX64.exe`
+- **Windows (ARM64)** — `GrimlyARM64.exe`
+- **macOS** — `Grimly.app.zip` (the `.app` bundle, zipped — macOS can't download a folder directly)
 
 ### First run
 
