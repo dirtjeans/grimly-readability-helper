@@ -385,36 +385,36 @@
                             </Style>
                         </Button.Style>
                     </Button>
-
-                    <!-- Case dropdown: AP title, Chicago title, sentence.
-                         Deterministic recasing; result flows through the
-                         same review-diff UI as the LLM modes. Rendered as
-                         a button that opens a ContextMenu on click so the
-                         style choice stays out of the main strip. -->
-                    <Button x:Name="CaseButton"
-                            Margin="6,0,0,0" Padding="8,2" FontSize="11"
-                            VerticalAlignment="Center" Cursor="Hand"
-                            Background="{DynamicResource NeutralButtonBackgroundBrush}"
-                            Foreground="{DynamicResource NeutralButtonForegroundBrush}"
-                            Content="Case ▾"
-                            Style="{StaticResource ActionButton}"
-                            Click="CaseButton_Click"
-                            ToolTip="Reformat capitalization (AP, Chicago, or sentence case)">
-                        <Button.ContextMenu>
-                            <ContextMenu>
-                                <MenuItem Header="AP title case"
-                                          Command="{Binding ApplyCaseCommand}"
-                                          CommandParameter="ApTitle"/>
-                                <MenuItem Header="Chicago title case"
-                                          Command="{Binding ApplyCaseCommand}"
-                                          CommandParameter="ChicagoTitle"/>
-                                <MenuItem Header="Sentence case"
-                                          Command="{Binding ApplyCaseCommand}"
-                                          CommandParameter="Sentence"/>
-                            </ContextMenu>
-                        </Button.ContextMenu>
-                    </Button>
                 </StackPanel>
+
+                <!-- Case dropdown: AP title, Chicago title, sentence.
+                     Docked separately from the readability group so it
+                     stays visible even before the user has typed anything
+                     (the readability StackPanel collapses on an empty
+                     label). -->
+                <Button x:Name="CaseButton" DockPanel.Dock="Right"
+                        Margin="0,0,10,0" Padding="8,2" FontSize="11"
+                        VerticalAlignment="Center" Cursor="Hand"
+                        Background="{DynamicResource NeutralButtonBackgroundBrush}"
+                        Foreground="{DynamicResource NeutralButtonForegroundBrush}"
+                        Content="Case ▾"
+                        Style="{StaticResource ActionButton}"
+                        Click="CaseButton_Click"
+                        ToolTip="Reformat capitalization (AP, Chicago, or sentence case)">
+                    <Button.ContextMenu>
+                        <ContextMenu>
+                            <MenuItem Header="AP title case"
+                                      Command="{Binding ApplyCaseCommand}"
+                                      CommandParameter="ApTitle"/>
+                            <MenuItem Header="Chicago title case"
+                                      Command="{Binding ApplyCaseCommand}"
+                                      CommandParameter="ChicagoTitle"/>
+                            <MenuItem Header="Sentence case"
+                                      Command="{Binding ApplyCaseCommand}"
+                                      CommandParameter="Sentence"/>
+                        </ContextMenu>
+                    </Button.ContextMenu>
+                </Button>
             </DockPanel>
 
             <!-- Loading indicator -->
