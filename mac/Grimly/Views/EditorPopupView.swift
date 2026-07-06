@@ -117,6 +117,23 @@ struct EditorPopupView: View {
                             .foregroundColor(Color(white: 0.47))
                     }
                 }
+
+                // Case menu — deterministic recasing, result shows as a
+                // reviewable diff (same UX as the LLM modes).
+                Menu {
+                    Button("AP title case")      { viewModel.applyCase(.apTitle) }
+                    Button("Chicago title case") { viewModel.applyCase(.chicagoTitle) }
+                    Button("Sentence case")      { viewModel.applyCase(.sentence) }
+                } label: {
+                    Text("Case ▾")
+                        .font(.system(size: 10))
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 3)
+                        .foregroundColor(Color(white: 0.85))
+                }
+                .menuStyle(.borderlessButton)
+                .fixedSize()
+                .help("Reformat capitalization (AP, Chicago, or sentence case)")
             }
             .padding(.bottom, 6)
 

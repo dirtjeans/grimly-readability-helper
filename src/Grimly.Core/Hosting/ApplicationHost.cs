@@ -93,6 +93,7 @@ public sealed class ApplicationHost : IDisposable
         // pay that cost on every invocation.
         services.AddSingleton<ISpellCheckerService, SpellCheckerService>();
         services.AddSingleton<IGrammarChecker, GrammarChecker>();
+        services.AddSingleton<ICaseFormatter, CaseFormatter>();
         services.AddHttpClient<IFoundryLocalClient, FoundryLocalClient>();
         _serviceProvider = services.BuildServiceProvider();
 
@@ -475,6 +476,7 @@ public sealed class ApplicationHost : IDisposable
                 _serviceProvider!.GetRequiredService<IReadabilityService>(),
                 
                 _serviceProvider!.GetRequiredService<IGrammarChecker>(),
+                _serviceProvider!.GetRequiredService<ICaseFormatter>(),
                 _serviceProvider!.GetRequiredService<ISettingsService>(),
                 _branding,
                 _serviceProvider!.GetService<IWordReadabilityService>())
@@ -533,6 +535,7 @@ public sealed class ApplicationHost : IDisposable
                 _serviceProvider!.GetRequiredService<IReadabilityService>(),
                 
                 _serviceProvider!.GetRequiredService<IGrammarChecker>(),
+                _serviceProvider!.GetRequiredService<ICaseFormatter>(),
                 _serviceProvider!.GetRequiredService<ISettingsService>(),
                 _branding,
                 _serviceProvider!.GetService<IWordReadabilityService>())

@@ -107,6 +107,28 @@ class EditorPopupViewModel: ObservableObject {
         violations = codeChecker.check(text)
     }
 
+    /// Re-case the working text and show the result as a reviewable diff.
+    /// Deterministic — no LLM round-trip. Used by the "Case" dropdown for
+    /// AP title case, Chicago title case, and sentence case.
+    func applyCase(_ style: CaseStyle) {
+        let rewritten = CaseFormatter.apply(workingText, style: style)
+        guard rewritten != workingText else { return }
+
+        preRevisionText = workingText
+        let diffs = diffService.computeDiff(original: preRevisionText, corrected: rewritten)
+        let segments = diffService.groupIntoSegments(diffs)
+        reviewSegments = segments
+
+        if segments.contains(where: { $0.isChange }) {
+            undoStack.append(preRevisionText)
+            canUndo = true
+            isReviewing = true
+            hasResult = true
+            rebuildWorkingText()
+            onReviewSegmentsChanged?()
+        }
+    }
+
     /// Quick Fix — apply every deterministic fix the live checker found, as
     /// a single reviewable diff. Mirrors the accept/reject UX used by Fix
     /// Grammar so the user reviews before committing rather than seeing

@@ -41,6 +41,21 @@ public partial class EditorPopupWindow : Window
         BuildModeButtons();
     }
 
+    /// <summary>
+    /// The "Case ▾" button attaches its style menu via <c>Button.ContextMenu</c>,
+    /// but WPF only opens a ContextMenu on right-click by default. This
+    /// handler opens it on left-click too — the button reads as a dropdown.
+    /// </summary>
+    private void CaseButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is Button b && b.ContextMenu is ContextMenu menu)
+        {
+            menu.PlacementTarget = b;
+            menu.Placement = System.Windows.Controls.Primitives.PlacementMode.Bottom;
+            menu.IsOpen = true;
+        }
+    }
+
     private static SolidColorBrush ResolveBrush(string key, Color fallback)
     {
         if (Application.Current?.TryFindResource(key) is SolidColorBrush themed) return themed;

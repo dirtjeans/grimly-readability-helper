@@ -17,6 +17,7 @@ public partial class EditorPopupViewModel : ObservableObject
     private readonly IReadabilityService _readabilityService;
     private readonly IWordReadabilityService? _wordReadabilityService;
     private readonly IGrammarChecker _codeChecker;
+    private readonly ICaseFormatter _caseFormatter;
     private readonly ISettingsService _settingsService;
     private readonly BrandingOptions _branding;
     private CancellationTokenSource? _cts;
@@ -140,6 +141,7 @@ public partial class EditorPopupViewModel : ObservableObject
         IFoundryManager foundryManager,
         IReadabilityService readabilityService,
         IGrammarChecker codeChecker,
+        ICaseFormatter caseFormatter,
         ISettingsService settingsService,
         BrandingOptions branding,
         IWordReadabilityService? wordReadabilityService = null)
@@ -151,6 +153,7 @@ public partial class EditorPopupViewModel : ObservableObject
         _readabilityService = readabilityService;
         _wordReadabilityService = wordReadabilityService;
         _codeChecker = codeChecker;
+        _caseFormatter = caseFormatter;
         _settingsService = settingsService;
         _branding = branding;
 
@@ -585,6 +588,38 @@ public partial class EditorPopupViewModel : ObservableObject
     public bool HasAutoFixableViolations => Violations.Any(v => v.CanAutoFix);
 
     private bool CanApplyQuickFixes() => HasAutoFixableViolations && !IsLoading;
+
+    /// <summary>
+    /// Re-case the working text and show the result as a reviewable diff.
+    /// Deterministic — no LLM round-trip. Used by the "Case" dropdown for
+    /// AP title case, Chicago title case, and sentence case. Sentence case
+    /// can't distinguish proper nouns from title-cased words; the review UI
+    /// lets the user reject individual changes.
+    /// </summary>
+    [RelayCommand]
+    private void ApplyCase(string? styleName)
+    {
+        if (string.IsNullOrEmpty(styleName)) return;
+        if (!Enum.TryParse<CaseStyle>(styleName, ignoreCase: false, out var style)) return;
+
+        var rewritten = _caseFormatter.Apply(WorkingText, style);
+        if (rewritten == WorkingText) return;
+
+        _preRevisionText = WorkingText;
+        var diffs = _diffService.ComputeDiff(_preRevisionText, rewritten);
+        var segments = _diffService.GroupIntoSegments(diffs);
+        ReviewSegments = new ObservableCollection<ReviewSegment>(segments);
+
+        if (segments.Any(s => s.IsChange))
+        {
+            _undoStack.Push(_preRevisionText);
+            CanUndo = true;
+            IsReviewing = true;
+            HasResult = true;
+            RebuildWorkingText();
+            ReviewSegmentsChanged?.Invoke();
+        }
+    }
 
     public void ToggleChange(int segmentId)
     {
