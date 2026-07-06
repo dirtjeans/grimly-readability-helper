@@ -22,6 +22,7 @@ public partial class EditorPopupViewModel : ObservableObject
     private readonly BrandingOptions _branding;
     private CancellationTokenSource? _cts;
     private CancellationTokenSource? _liveCheckCts;
+    private CancellationTokenSource? _backgroundReconnectCts;
     private readonly Stack<string> _undoStack = new();
     private string _preRevisionText = "";
     private readonly HashSet<EditingMode> _appliedModes = new();
@@ -120,6 +121,106 @@ public partial class EditorPopupViewModel : ObservableObject
         "Click Quick Fix for the mechanical corrections. Use Fix Grammar for AI-assisted revisions of the rest.";
 
     public bool IsCustomMode => SelectedMode == EditingMode.CustomPrompt;
+
+    /// <summary>
+    /// When the connection drops for a reason that might be transient
+    /// (Foundry Local moved to a new port on a service restart, model
+    /// briefly unloaded, network hiccup), kick off a silent reconnect loop
+    /// so the user doesn't have to hunt for the Retry button. Fatal states
+    /// (Foundry not installed) don't trigger the loop.
+    /// </summary>
+    partial void OnConnectionStatusChanged(ConnectionStatus value)
+    {
+        if (value == ConnectionStatus.Connected)
+        {
+            _backgroundReconnectCts?.Cancel();
+            _backgroundReconnectCts = null;
+        }
+        else if (value is ConnectionStatus.Error
+                       or ConnectionStatus.ServiceNotRunning
+                       or ConnectionStatus.ModelNotLoaded)
+        {
+            StartBackgroundReconnect();
+        }
+    }
+
+    /// <summary>
+    /// Background reconnect loop. Runs while the connection is in a
+    /// (probably) transient failure state. Alternates between cheap probes
+    /// and heavy service-restart attempts: cheap checks catch the common
+    /// case where Foundry Local's port stays stable; the heavy restart
+    /// covers the case where Foundry picked a new random port on start.
+    ///
+    /// Deliberately silent — no toast, no status flicker. On success it
+    /// updates ConnectionStatus / ConnectionStatusText and clears any
+    /// "Cannot connect" banner in one shot, so the UI just quietly recovers.
+    /// </summary>
+    private void StartBackgroundReconnect()
+    {
+        // A loop is already running; don't stack another one.
+        if (_backgroundReconnectCts is { IsCancellationRequested: false }) return;
+
+        _backgroundReconnectCts = new CancellationTokenSource();
+        var ct = _backgroundReconnectCts.Token;
+
+        _ = Task.Run(async () =>
+        {
+            int attempt = 0;
+            while (!ct.IsCancellationRequested)
+            {
+                // Backoff: 3s → 5s → 7s → …, capped at 15s. Keeps us
+                // responsive right after the failure without hammering the
+                // service if it stays down for minutes.
+                var delayMs = Math.Min(3000 + attempt * 2000, 15000);
+                try { await Task.Delay(delayMs, ct); }
+                catch (OperationCanceledException) { return; }
+                if (ct.IsCancellationRequested) return;
+
+                bool recovered = false;
+                try
+                {
+                    // Cheap probe first: is the currently-configured port
+                    // reachable?
+                    var status = await _foundryManager.CheckConnectionAsync();
+                    if (status == ConnectionStatus.Connected)
+                    {
+                        recovered = true;
+                    }
+                    else if (attempt >= 2 && attempt % 3 == 0)
+                    {
+                        // Every third failed cheap probe (~10–30s in),
+                        // pay the cost of a full restart to catch the
+                        // "Foundry moved to a new port" case.
+                        recovered = await _foundryManager.ForceReconnectAsync();
+                    }
+                }
+                catch
+                {
+                    // Any exception here (HTTP timeout, process failure)
+                    // just counts as a failed attempt.
+                }
+
+                if (recovered)
+                {
+                    await System.Windows.Application.Current!.Dispatcher.InvokeAsync(() =>
+                    {
+                        if (ct.IsCancellationRequested) return;
+                        _consecutiveTimeouts = 0;
+                        ConnectionStatus = ConnectionStatus.Connected;
+                        ConnectionStatusText = $"Connected · {_settingsService.Load().ModelName}";
+                        if (ErrorMessage == "Cannot connect to local LLM.")
+                        {
+                            ErrorMessage = null;
+                            ShowRetry = false;
+                        }
+                    });
+                    return;
+                }
+
+                attempt++;
+            }
+        }, ct);
+    }
 
     partial void OnSelectedModeChanged(EditingMode value)
     {
@@ -704,6 +805,8 @@ public partial class EditorPopupViewModel : ObservableObject
     private void Dismiss()
     {
         _cts?.Cancel();
+        _liveCheckCts?.Cancel();
+        _backgroundReconnectCts?.Cancel();
         RequestClose?.Invoke();
     }
 

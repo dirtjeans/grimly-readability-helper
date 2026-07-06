@@ -39,6 +39,7 @@ class EditorPopupViewModel: ObservableObject {
     private let codeChecker = GrammarChecker()
     private let readabilityService = ReadabilityService()
     private var currentTask: Task<Void, Never>?
+    private var backgroundReconnectTask: Task<Void, Never>?
     private var undoStack: [String] = []
     private var preRevisionText: String = ""
     private var cancellables = Set<AnyCancellable>()
@@ -97,6 +98,68 @@ class EditorPopupViewModel: ObservableObject {
             .debounce(for: .milliseconds(400), scheduler: RunLoop.main)
             .sink { [weak self] text in self?.runLiveCheck(on: text) }
             .store(in: &cancellables)
+
+        // Silent background reconnect. Whenever the connection status flips
+        // to a probably-transient failure (Foundry Local restarted onto a
+        // new port, model briefly unloaded), spin up a loop that retries in
+        // the background so the user doesn't have to click Retry manually.
+        // .foundryNotInstalled is fatal and skipped.
+        $connectionStatus
+            .removeDuplicates()
+            .sink { [weak self] status in
+                guard let self else { return }
+                if status == .connected {
+                    self.backgroundReconnectTask?.cancel()
+                    self.backgroundReconnectTask = nil
+                } else if status == .modelNotLoaded || status == .foundryNotRunning {
+                    self.startBackgroundReconnect()
+                }
+            }
+            .store(in: &cancellables)
+    }
+
+    /// Background reconnect loop. Alternates cheap `checkConnection` probes
+    /// (in case Foundry's port stayed the same) with heavier `ensureRunning`
+    /// calls that can restart the service and re-parse the endpoint. Silent
+    /// throughout — no toast, no status flicker; on success it quietly
+    /// flips ConnectionStatus back to `.connected` and clears any banner.
+    private func startBackgroundReconnect() {
+        // Loop already running — don't stack another one.
+        if let task = backgroundReconnectTask, !task.isCancelled { return }
+
+        backgroundReconnectTask = Task { [weak self] in
+            var attempt = 0
+            while true {
+                guard let self else { return }
+                if Task.isCancelled { return }
+
+                // 3s → 5s → 7s → …, capped at 15s.
+                let delayNs = UInt64(min(3_000 + attempt * 2_000, 15_000)) * 1_000_000
+                do { try await Task.sleep(nanoseconds: delayNs) } catch { return }
+                if Task.isCancelled { return }
+
+                var recovered = false
+                let cheapStatus = await self.foundryManager.checkConnection()
+                if cheapStatus == .connected {
+                    recovered = true
+                } else if attempt >= 2 && attempt % 3 == 0 {
+                    // Every ~10–30s in, pay for a full ensureRunning to catch
+                    // the "Foundry moved to a new port" case.
+                    let result = await self.foundryManager.ensureRunning()
+                    recovered = result.success
+                }
+
+                if recovered {
+                    if Task.isCancelled { return }
+                    self.connectionStatus = .connected
+                    if self.errorMessage == "Cannot connect to local LLM." {
+                        self.errorMessage = nil
+                    }
+                    return
+                }
+                attempt += 1
+            }
+        }
     }
 
     private func runLiveCheck(on text: String) {
@@ -310,6 +373,7 @@ class EditorPopupViewModel: ObservableObject {
 
     func dismiss() {
         currentTask?.cancel()
+        backgroundReconnectTask?.cancel()
         onRequestClose?()
     }
 
