@@ -335,7 +335,35 @@
                  model-name string and the readability label had to share one
                  line. -->
             <DockPanel Grid.Row="7" Margin="0,2,0,6" LastChildFill="False">
-                <!-- Readability score (right) -->
+                <!-- Case dropdown (far right). Docked first so it pins to
+                     the outer edge; the readability group docks to its left.
+                     Always visible — kept out of the readability StackPanel
+                     which collapses when the label is empty. -->
+                <Button x:Name="CaseButton" DockPanel.Dock="Right"
+                        Margin="10,0,0,0" Padding="8,2" FontSize="11"
+                        VerticalAlignment="Center" Cursor="Hand"
+                        Background="{DynamicResource NeutralButtonBackgroundBrush}"
+                        Foreground="{DynamicResource NeutralButtonForegroundBrush}"
+                        Content="Case ▾"
+                        Style="{StaticResource ActionButton}"
+                        Click="CaseButton_Click"
+                        ToolTip="Reformat capitalization (AP, Chicago, or sentence case)">
+                    <Button.ContextMenu>
+                        <ContextMenu>
+                            <MenuItem Header="AP title case"
+                                      Command="{Binding ApplyCaseCommand}"
+                                      CommandParameter="ApTitle"/>
+                            <MenuItem Header="Chicago title case"
+                                      Command="{Binding ApplyCaseCommand}"
+                                      CommandParameter="ChicagoTitle"/>
+                            <MenuItem Header="Sentence case"
+                                      Command="{Binding ApplyCaseCommand}"
+                                      CommandParameter="Sentence"/>
+                        </ContextMenu>
+                    </Button.ContextMenu>
+                </Button>
+
+                <!-- Readability score (docks to right of remaining space) -->
                 <StackPanel DockPanel.Dock="Right" Orientation="Horizontal"
                             VerticalAlignment="Center">
                     <StackPanel.Style>
@@ -387,34 +415,6 @@
                     </Button>
                 </StackPanel>
 
-                <!-- Case dropdown: AP title, Chicago title, sentence.
-                     Docked separately from the readability group so it
-                     stays visible even before the user has typed anything
-                     (the readability StackPanel collapses on an empty
-                     label). -->
-                <Button x:Name="CaseButton" DockPanel.Dock="Right"
-                        Margin="0,0,10,0" Padding="8,2" FontSize="11"
-                        VerticalAlignment="Center" Cursor="Hand"
-                        Background="{DynamicResource NeutralButtonBackgroundBrush}"
-                        Foreground="{DynamicResource NeutralButtonForegroundBrush}"
-                        Content="Case ▾"
-                        Style="{StaticResource ActionButton}"
-                        Click="CaseButton_Click"
-                        ToolTip="Reformat capitalization (AP, Chicago, or sentence case)">
-                    <Button.ContextMenu>
-                        <ContextMenu>
-                            <MenuItem Header="AP title case"
-                                      Command="{Binding ApplyCaseCommand}"
-                                      CommandParameter="ApTitle"/>
-                            <MenuItem Header="Chicago title case"
-                                      Command="{Binding ApplyCaseCommand}"
-                                      CommandParameter="ChicagoTitle"/>
-                            <MenuItem Header="Sentence case"
-                                      Command="{Binding ApplyCaseCommand}"
-                                      CommandParameter="Sentence"/>
-                        </ContextMenu>
-                    </Button.ContextMenu>
-                </Button>
             </DockPanel>
 
             <!-- Loading indicator -->
