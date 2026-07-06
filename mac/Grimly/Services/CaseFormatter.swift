@@ -70,12 +70,20 @@ enum CaseFormatter {
         let wordIndices = tokens.indices.filter { !tokens[$0].isEmpty && !tokens[$0].first!.isWhitespace }
         guard let firstWord = wordIndices.first, let lastWord = wordIndices.last else { return text }
 
-        var afterColon = false
+        // Any `.`, `!`, `?`, or `:` inside the title ends a clause; the
+        // next word starts a new "sentence" and is force-capitalized.
+        // Modern headline style routinely uses `.` as a real terminator
+        // ("Balogun Is Back. But How Will..."). Decimals ("v2.0") and
+        // initials ("J.R.R.") are not disrupted — a digit doesn't take
+        // capitalization, and the word after an initials cluster is a
+        // proper noun that gets capitalized regardless.
+        var afterClauseEnd = false
         for i in tokens.indices {
             if tokens[i].isEmpty || tokens[i].first!.isWhitespace { continue }
-            let forceCap = (i == firstWord) || (i == lastWord) || afterColon
+            let forceCap = (i == firstWord) || (i == lastWord) || afterClauseEnd
             tokens[i] = transformWord(tokens[i], forceCap: forceCap, chicago: chicago)
-            afterColon = tokens[i].hasSuffix(":")
+            let last = tokens[i].last!
+            afterClauseEnd = last == ":" || last == "?" || last == "!" || last == "."
         }
         return tokens.joined()
     }

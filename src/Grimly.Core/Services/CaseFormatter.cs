@@ -109,7 +109,14 @@ public sealed class CaseFormatter : ICaseFormatter
 
         int firstWord = wordIndices[0];
         int lastWord = wordIndices[^1];
-        bool afterColon = false; // subtitle start → next word always caps
+        // Any `.`, `!`, `?`, or `:` inside the title ends a clause; the next
+        // word starts a new "sentence" and is force-capitalized. Modern
+        // headline style routinely uses `.` as a real terminator
+        // ("Balogun Is Back. But How Will..."). Decimals ("v2.0") and
+        // initials ("J.R.R.") are not disrupted — a digit doesn't take
+        // capitalization, and the word after an initials cluster is a
+        // proper noun that gets capitalized regardless.
+        bool afterClauseEnd = false;
 
         for (int i = 0; i < tokens.Length; i++)
         {
@@ -118,13 +125,12 @@ public sealed class CaseFormatter : ICaseFormatter
 
             bool isFirst = i == firstWord;
             bool isLast = i == lastWord;
-            bool forceCap = isFirst || isLast || afterColon;
+            bool forceCap = isFirst || isLast || afterClauseEnd;
 
             tokens[i] = TransformWord(tokens[i], forceCap, chicago);
 
-            // A word ending in ":" opens a subtitle — the *next* word takes
-            // a forced capital regardless of its usual rule.
-            afterColon = tokens[i].EndsWith(':');
+            var last = tokens[i][^1];
+            afterClauseEnd = last == ':' || last == '?' || last == '!' || last == '.';
         }
         return string.Concat(tokens);
     }
