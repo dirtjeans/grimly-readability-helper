@@ -5,7 +5,10 @@ namespace Grimly.Models;
 public sealed class ChatCompletionRequest
 {
     [JsonPropertyName("model")]
-    public string Model { get; set; } = "phi-4-mini";
+    // Never actually sent — FoundryLocalClient overwrites this with the
+    // model from settings before dispatching. Aligned with the AppSettings
+    // default so a reader glancing at the DTO isn't misled.
+    public string Model { get; set; } = "qwen2.5-7b-instruct-qnn-npu:2";
 
     [JsonPropertyName("messages")]
     public List<ChatMessage> Messages { get; set; } = [];
