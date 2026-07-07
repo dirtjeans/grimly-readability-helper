@@ -22,6 +22,12 @@ public sealed record CatalogModelInfo(
     public bool IsNpu => Device.Contains("npu", System.StringComparison.OrdinalIgnoreCase)
                       || Device.Contains("qnn", System.StringComparison.OrdinalIgnoreCase);
 
+    public bool IsGpu => Device.Contains("gpu", System.StringComparison.OrdinalIgnoreCase)
+                      || Device.Contains("cuda", System.StringComparison.OrdinalIgnoreCase)
+                      || Device.Contains("directml", System.StringComparison.OrdinalIgnoreCase)
+                      || Device.Contains("rocm", System.StringComparison.OrdinalIgnoreCase)
+                      || Device.Contains("dml", System.StringComparison.OrdinalIgnoreCase);
+
     public string SizeDisplay => SizeBytes is long b && b > 0
         ? $"{b / (1024.0 * 1024 * 1024):0.0} GB"
         : "";

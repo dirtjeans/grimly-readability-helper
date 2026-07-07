@@ -42,10 +42,16 @@
                      Foreground="{DynamicResource InputForegroundBrush}"
                      BorderBrush="{DynamicResource InputBorderBrush}"
                      Padding="6,4" FontSize="13"/>
-            <CheckBox Grid.Column="1" Content="NPU only"
-                      IsChecked="{Binding NpuOnly, Mode=TwoWay}"
-                      VerticalAlignment="Center" Margin="10,0,0,0"
-                      Foreground="{DynamicResource BodyForegroundBrush}"/>
+            <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                <CheckBox Content="NPU"
+                          IsChecked="{Binding ShowNpu, Mode=TwoWay}"
+                          Margin="10,0,0,0"
+                          Foreground="{DynamicResource BodyForegroundBrush}"/>
+                <CheckBox Content="GPU"
+                          IsChecked="{Binding ShowGpu, Mode=TwoWay}"
+                          Margin="10,0,0,0"
+                          Foreground="{DynamicResource BodyForegroundBrush}"/>
+            </StackPanel>
         </Grid>
 
         <!-- Model list -->

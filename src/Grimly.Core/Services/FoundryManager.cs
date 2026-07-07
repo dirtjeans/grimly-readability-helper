@@ -573,11 +573,15 @@ public sealed class FoundryManager : IFoundryManager
     {
         var models = new List<CatalogModelInfo>();
 
-        var (exitCode, output) = await RunFoundryCommandAsync("model list --available", ct, TimeSpan.FromMinutes(3));
+        // Catalog. `foundry model list` (no --available flag — that was
+        // removed from the CLI) returns all models the service knows about.
+        var (exitCode, output) = await RunFoundryCommandAsync("model list", ct, TimeSpan.FromMinutes(3));
         if (exitCode != 0 || string.IsNullOrWhiteSpace(output)) return models;
 
-        var (_, cachedOutput) = await RunFoundryCommandAsync("model list", ct, TimeSpan.FromSeconds(30));
-        var cachedIds = new HashSet<string>(ParseModelAliases(cachedOutput), StringComparer.OrdinalIgnoreCase);
+        // Cached models come from `foundry cache list`, a different command
+        // with a different format (💾-prefixed rows, two columns).
+        var (_, cachedOutput) = await RunFoundryCommandAsync("cache list", ct, TimeSpan.FromSeconds(30));
+        var cachedIds = new HashSet<string>(ParseCachedIds(cachedOutput), StringComparer.OrdinalIgnoreCase);
 
         foreach (var row in ParseCatalogRows(output))
         {
@@ -587,50 +591,79 @@ public sealed class FoundryManager : IFoundryManager
         return models;
     }
 
+    /// <summary>
+    /// Parse the tabular output of <c>foundry model list</c>. Columns are
+    /// <c>Alias | Device | Task | File Size | License | Model ID</c>.
+    /// Variant rows (a CPU build of the same model as the row above) leave
+    /// the Alias blank but always fill Model ID, so we key on Model ID.
+    /// Separator lines and stderr chatter are skipped.
+    /// </summary>
     private static IEnumerable<(string Id, string Device, long? SizeBytes)> ParseCatalogRows(string output)
     {
         var lines = output.Split('\n', StringSplitOptions.RemoveEmptyEntries);
-        int aliasIdx = -1, deviceIdx = -1, sizeIdx = -1;
+        int deviceIdx = -1, sizeIdx = -1, modelIdIdx = -1;
 
         foreach (var raw in lines)
         {
             var line = raw.TrimEnd('\r');
             if (line.Length == 0) continue;
 
-            if (aliasIdx < 0)
+            if (modelIdIdx < 0)
             {
                 var lower = line.ToLowerInvariant();
-                if (lower.Contains("alias") || lower.Contains("model") && lower.Contains("id"))
+                if (lower.Contains("alias") && lower.Contains("model id"))
                 {
                     var headers = SplitColumns(line);
                     for (int i = 0; i < headers.Length; i++)
                     {
-                        var h = headers[i].ToLowerInvariant();
-                        if (aliasIdx < 0 && (h.StartsWith("alias") || h.Contains("model id"))) aliasIdx = i;
-                        if (deviceIdx < 0 && h.StartsWith("device")) deviceIdx = i;
-                        if (sizeIdx < 0 && h.StartsWith("size")) sizeIdx = i;
+                        var h = headers[i].Trim().ToLowerInvariant();
+                        if (h.StartsWith("device")) deviceIdx = i;
+                        else if (h.StartsWith("file size") || h == "size") sizeIdx = i;
+                        else if (h == "model id" || h.EndsWith("model id")) modelIdIdx = i;
                     }
                 }
                 continue;
             }
 
-            var cols = SplitColumns(line);
-            if (cols.Length <= aliasIdx) continue;
+            var trimmed = line.TrimStart();
+            if (trimmed.StartsWith('-') || trimmed.StartsWith('[')) continue;
 
-            var alias = cols[aliasIdx].Trim();
-            if (alias.Length == 0 || alias.StartsWith('-')) continue;
+            var cols = SplitColumns(line);
+            if (cols.Length <= modelIdIdx) continue;
+
+            var modelId = cols[modelIdIdx].Trim();
+            if (modelId.Length == 0) continue;
 
             var device = deviceIdx >= 0 && cols.Length > deviceIdx ? cols[deviceIdx].Trim() : "";
             var size = sizeIdx >= 0 && cols.Length > sizeIdx ? ParseSizeToBytes(cols[sizeIdx].Trim()) : null;
 
-            yield return (alias, device, size);
+            yield return (modelId, device, size);
         }
     }
 
-    private static IEnumerable<string> ParseModelAliases(string output)
+    /// <summary>
+    /// Parse the output of <c>foundry cache list</c>. Rows look like:
+    /// <c>💾 qwen2.5-7b-instruct-qnn-npu:2   qwen2.5-7b-instruct-qnn-npu:2</c>
+    /// — we want the Model ID column (second one). Stderr noise
+    /// ("Failed to process model…") is skipped.
+    /// </summary>
+    private static IEnumerable<string> ParseCachedIds(string output)
     {
-        foreach (var row in ParseCatalogRows(output))
-            yield return row.Id;
+        foreach (var raw in output.Split('\n', StringSplitOptions.RemoveEmptyEntries))
+        {
+            var line = raw.TrimEnd('\r');
+            if (line.Length == 0) continue;
+            var idx = line.IndexOf('\U0001F4BE');
+            if (idx < 0) continue;
+            var payload = line[(idx + 1)..].TrimStart();
+            var cols = SplitColumns(payload);
+            if (cols.Length == 0) continue;
+            for (int i = cols.Length - 1; i >= 0; i--)
+            {
+                var v = cols[i].Trim();
+                if (v.Length > 0) { yield return v; break; }
+            }
+        }
     }
 
     private static string[] SplitColumns(string line) =>

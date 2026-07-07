@@ -30,8 +30,16 @@ public partial class ModelBrowserViewModel : ObservableObject
     [ObservableProperty]
     private string _searchText = "";
 
+    /// <summary>
+    /// Device filters. Both default on so a first-time user sees the
+    /// relevant models for their hardware without having to toggle
+    /// anything. Both off = no filter (show everything, including CPU).
+    /// </summary>
     [ObservableProperty]
-    private bool _npuOnly = true;
+    private bool _showNpu = true;
+
+    [ObservableProperty]
+    private bool _showGpu = true;
 
     [ObservableProperty]
     private CatalogModelInfo? _selectedModel;
@@ -81,12 +89,21 @@ public partial class ModelBrowserViewModel : ObservableObject
     }
 
     partial void OnSearchTextChanged(string value) => RebuildFiltered();
-    partial void OnNpuOnlyChanged(bool value) => RebuildFiltered();
+    partial void OnShowNpuChanged(bool value) => RebuildFiltered();
+    partial void OnShowGpuChanged(bool value) => RebuildFiltered();
 
     private void RebuildFiltered()
     {
         IEnumerable<CatalogModelInfo> q = AllModels;
-        if (NpuOnly) q = q.Where(m => m.IsNpu);
+
+        // Device filter: OR across the checked device categories. Both off
+        // = no filter (show everything, including CPU). Both on = show NPU
+        // and GPU models but hide CPU-only models.
+        if (ShowNpu || ShowGpu)
+        {
+            q = q.Where(m => (ShowNpu && m.IsNpu) || (ShowGpu && m.IsGpu));
+        }
+
         if (!string.IsNullOrWhiteSpace(SearchText))
             q = q.Where(m => m.Id.Contains(SearchText, StringComparison.OrdinalIgnoreCase));
 
