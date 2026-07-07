@@ -653,9 +653,11 @@ public sealed class FoundryManager : IFoundryManager
         {
             var line = raw.TrimEnd('\r');
             if (line.Length == 0) continue;
-            var idx = line.IndexOf('\U0001F4BE');
+            // Emoji is a UTF-16 surrogate pair — two chars, so String.IndexOf.
+            const string cachedMarker = "\U0001F4BE";
+            var idx = line.IndexOf(cachedMarker, StringComparison.Ordinal);
             if (idx < 0) continue;
-            var payload = line[(idx + 1)..].TrimStart();
+            var payload = line[(idx + cachedMarker.Length)..].TrimStart();
             var cols = SplitColumns(payload);
             if (cols.Length == 0) continue;
             for (int i = cols.Length - 1; i >= 0; i--)
