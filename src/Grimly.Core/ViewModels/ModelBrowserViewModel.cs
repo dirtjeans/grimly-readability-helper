@@ -31,15 +31,15 @@ public partial class ModelBrowserViewModel : ObservableObject
     private string _searchText = "";
 
     /// <summary>
-    /// Device filters. Both default on so a first-time user sees the
-    /// relevant models for their hardware without having to toggle
-    /// anything. Both off = no filter (show everything, including CPU).
+    /// Device filters. Both default off — the modal opens showing every
+    /// model in the catalog, and the user ticks NPU or GPU (or both) to
+    /// narrow the list. If nothing's ticked, no filter applies.
     /// </summary>
     [ObservableProperty]
-    private bool _showNpu = true;
+    private bool _showNpu;
 
     [ObservableProperty]
-    private bool _showGpu = true;
+    private bool _showGpu;
 
     [ObservableProperty]
     private CatalogModelInfo? _selectedModel;
