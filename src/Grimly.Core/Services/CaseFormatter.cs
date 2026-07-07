@@ -34,6 +34,15 @@ public interface ICaseFormatter
 /// </summary>
 public sealed class CaseFormatter : ICaseFormatter
 {
+    private readonly IProperNounService? _properNouns;
+
+    public CaseFormatter() { }
+
+    public CaseFormatter(IProperNounService properNouns)
+    {
+        _properNouns = properNouns;
+    }
+
     // ─── Word lists ───
 
     private static readonly HashSet<string> Articles = new(StringComparer.OrdinalIgnoreCase)
@@ -228,7 +237,7 @@ public sealed class CaseFormatter : ICaseFormatter
 
     // ─── Sentence case ───
 
-    private static string SentenceCase(string text)
+    private string SentenceCase(string text)
     {
         if (string.IsNullOrEmpty(text)) return text;
 
@@ -259,7 +268,7 @@ public sealed class CaseFormatter : ICaseFormatter
         return string.Concat(tokens);
     }
 
-    private static string SentenceCaseWord(string token, bool isSentenceStart)
+    private string SentenceCaseWord(string token, bool isSentenceStart)
     {
         int leadLen = 0;
         while (leadLen < token.Length && !char.IsLetterOrDigit(token[leadLen])) leadLen++;
@@ -290,6 +299,16 @@ public sealed class CaseFormatter : ICaseFormatter
             if (part.Equals("i", StringComparison.OrdinalIgnoreCase))
             {
                 parts[p] = "I";
+                wordStart = false;
+                continue;
+            }
+            // Known proper noun (Kenneth, London, JavaScript, New York, …)
+            // that isn't in the ambiguous stoplist — preserve capitalization.
+            // Sentence-case can't infer proper nouns from title-cased input;
+            // this list is how we retain the ones we do know.
+            if (_properNouns?.ShouldPreserveInSentenceCase(part) == true)
+            {
+                parts[p] = Capitalize(part);
                 wordStart = false;
                 continue;
             }

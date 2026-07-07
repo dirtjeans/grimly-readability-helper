@@ -94,6 +94,7 @@ public sealed class ApplicationHost : IDisposable
         services.AddSingleton<ISpellCheckerService, SpellCheckerService>();
         services.AddSingleton<IGrammarChecker, GrammarChecker>();
         services.AddSingleton<ICaseFormatter, CaseFormatter>();
+        services.AddSingleton<IProperNounService, ProperNounService>();
         services.AddHttpClient<IFoundryLocalClient, FoundryLocalClient>();
         _serviceProvider = services.BuildServiceProvider();
 

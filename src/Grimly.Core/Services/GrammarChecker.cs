@@ -33,10 +33,12 @@ public interface IGrammarChecker
 public sealed class GrammarChecker : IGrammarChecker
 {
     private readonly ISpellCheckerService _spell;
+    private readonly IProperNounService _properNouns;
 
-    public GrammarChecker(ISpellCheckerService spell)
+    public GrammarChecker(ISpellCheckerService spell, IProperNounService properNouns)
     {
         _spell = spell;
+        _properNouns = properNouns;
     }
 
     // Tokenizer for the spell-check pass: pulls out word-shaped runs
@@ -421,6 +423,9 @@ public sealed class GrammarChecker : IGrammarChecker
             if (IsAllCaps(word)) continue;
 
             if (_spell.IsKnown(word)) continue;
+            // Well-known proper noun (Kenneth, Illumio, JavaScript, London, …).
+            // Case-insensitive lookup against the embedded proper_nouns.txt.
+            if (_properNouns.IsProperNoun(word)) continue;
 
             // Strip a trailing apostrophe-s for the dedupe key so
             // "company's" and "company" don't both get flagged separately

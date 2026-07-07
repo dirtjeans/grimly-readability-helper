@@ -53,11 +53,12 @@ enum CaseFormatter {
 
     // MARK: - Public API
 
-    static func apply(_ text: String, style: CaseStyle) -> String {
+    static func apply(_ text: String, style: CaseStyle,
+                      properNouns: ProperNounService? = nil) -> String {
         switch style {
         case .apTitle:      return titleCase(text, chicago: false)
         case .chicagoTitle: return titleCase(text, chicago: true)
-        case .sentence:     return sentenceCase(text)
+        case .sentence:     return sentenceCase(text, properNouns: properNouns)
         }
     }
 
@@ -132,7 +133,7 @@ enum CaseFormatter {
 
     // MARK: - Sentence case
 
-    private static func sentenceCase(_ text: String) -> String {
+    private static func sentenceCase(_ text: String, properNouns: ProperNounService?) -> String {
         guard !text.isEmpty else { return text }
 
         var tokens = tokenize(text)
@@ -142,7 +143,7 @@ enum CaseFormatter {
             let tok = tokens[i]
             if tok.isEmpty || tok.first!.isWhitespace { continue }
 
-            tokens[i] = sentenceCaseWord(tok, isSentenceStart: nextIsSentenceStart)
+            tokens[i] = sentenceCaseWord(tok, isSentenceStart: nextIsSentenceStart, properNouns: properNouns)
 
             // Does this token end in sentence-terminal punctuation?
             nextIsSentenceStart = false
@@ -157,7 +158,8 @@ enum CaseFormatter {
         return tokens.joined()
     }
 
-    private static func sentenceCaseWord(_ token: String, isSentenceStart: Bool) -> String {
+    private static func sentenceCaseWord(_ token: String, isSentenceStart: Bool,
+                                         properNouns: ProperNounService?) -> String {
         let (lead, core, trail) = splitPunctuation(token)
         guard !core.isEmpty else { return token }
 
@@ -174,6 +176,13 @@ enum CaseFormatter {
             }
             if part.caseInsensitiveCompare("i") == .orderedSame {
                 parts[i] = "I"
+                wordStart = false
+                continue
+            }
+            // Known proper noun (Kenneth, London, JavaScript, New York, …)
+            // that isn't in the ambiguous stoplist — preserve capitalization.
+            if properNouns?.shouldPreserveInSentenceCase(part) == true {
+                parts[i] = capitalize(part)
                 wordStart = false
                 continue
             }

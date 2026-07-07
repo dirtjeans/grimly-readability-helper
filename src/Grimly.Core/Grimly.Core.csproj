@@ -28,6 +28,7 @@
   <ItemGroup>
     <EmbeddedResource Include="Dictionaries\en_US.aff" />
     <EmbeddedResource Include="Dictionaries\en_US.dic" />
+    <EmbeddedResource Include="Dictionaries\proper_nouns.txt" />
   </ItemGroup>
 
   <!-- UI Automation (UIAutomationClient, UIAutomationTypes) is provided

@@ -100,9 +100,12 @@ final class GrammarChecker {
         try! NSRegularExpression(pattern: #"\b[A-Za-z][A-Za-z'‘’\-]*[A-Za-z]?\b"#)
 
     private let spellChecker: SpellCheckerService?
+    private let properNouns: ProperNounService?
 
-    init(spellChecker: SpellCheckerService? = SpellCheckerService()) {
+    init(spellChecker: SpellCheckerService? = SpellCheckerService(),
+         properNouns: ProperNounService? = ProperNounService()) {
         self.spellChecker = spellChecker
+        self.properNouns = properNouns
     }
 
     // MARK: - Check
@@ -316,6 +319,8 @@ final class GrammarChecker {
                     continue
                 }
                 if spell.isKnown(word) { continue }
+                // Well-known proper noun (Kenneth, London, JavaScript, …).
+                if properNouns?.isProperNoun(word) == true { continue }
 
                 var key = word.lowercased()
                 if key.hasSuffix("'s") { key = String(key.dropLast(2)) }

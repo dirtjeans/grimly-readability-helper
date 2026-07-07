@@ -36,7 +36,8 @@ class EditorPopupViewModel: ObservableObject {
     private let foundryManager: FoundryManager
     private let clipboardService: ClipboardService
     private let diffService: TextDiffService
-    private let codeChecker = GrammarChecker()
+    private let properNouns = ProperNounService()
+    private lazy var codeChecker = GrammarChecker(properNouns: properNouns)
     private let readabilityService = ReadabilityService()
     private var currentTask: Task<Void, Never>?
     private var backgroundReconnectTask: Task<Void, Never>?
@@ -174,7 +175,7 @@ class EditorPopupViewModel: ObservableObject {
     /// Deterministic — no LLM round-trip. Used by the "Case" dropdown for
     /// AP title case, Chicago title case, and sentence case.
     func applyCase(_ style: CaseStyle) {
-        let rewritten = CaseFormatter.apply(workingText, style: style)
+        let rewritten = CaseFormatter.apply(workingText, style: style, properNouns: properNouns)
         guard rewritten != workingText else { return }
 
         preRevisionText = workingText
