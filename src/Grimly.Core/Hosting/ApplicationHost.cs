@@ -371,6 +371,10 @@ public sealed class ApplicationHost : IDisposable
         settingsItem.Click += (_, _) => ShowSettings();
         menu.Items.Add(settingsItem);
 
+        var aboutItem = new System.Windows.Controls.MenuItem { Header = "About" };
+        aboutItem.Click += (_, _) => ShowAbout();
+        menu.Items.Add(aboutItem);
+
         menu.Items.Add(new System.Windows.Controls.Separator());
 
         var exitItem = new System.Windows.Controls.MenuItem { Header = "Exit" };
@@ -378,6 +382,54 @@ public sealed class ApplicationHost : IDisposable
         menu.Items.Add(exitItem);
 
         return menu;
+    }
+
+    /// <summary>
+    /// Simple About dialog showing app name, version, and build date. Version
+    /// comes from the assembly's InformationalVersion (falls back to the
+    /// numeric Version), which is set via &lt;Version&gt; in the .csproj.
+    /// Build date is the executing assembly's file timestamp — accurate for
+    /// single-file self-contained publishes.
+    /// </summary>
+    private void ShowAbout()
+    {
+        var asm = System.Reflection.Assembly.GetEntryAssembly()
+                  ?? System.Reflection.Assembly.GetExecutingAssembly();
+
+        string version = asm.GetCustomAttribute<System.Reflection.AssemblyInformationalVersionAttribute>()?
+                            .InformationalVersion
+                         ?? asm.GetName().Version?.ToString(3)
+                         ?? "unknown";
+
+        // Strip the +GITHASH suffix that SDK-generated
+        // InformationalVersion attributes carry — nobody wants to read that.
+        var plus = version.IndexOf('+');
+        if (plus > 0) version = version[..plus];
+
+        string buildDate = "";
+        try
+        {
+            var exePath = Environment.ProcessPath;
+            if (!string.IsNullOrEmpty(exePath) && System.IO.File.Exists(exePath))
+                buildDate = System.IO.File.GetLastWriteTime(exePath).ToString("yyyy-MM-dd");
+        }
+        catch { /* buildDate stays empty */ }
+
+        var lines = new List<string>
+        {
+            _branding.AppDisplayName,
+            $"Version {version}",
+        };
+        if (buildDate.Length > 0) lines.Add($"Built {buildDate}");
+        lines.Add("");
+        lines.Add("Running on Microsoft Foundry Local.");
+        lines.Add("Your text stays on your machine.");
+
+        System.Windows.MessageBox.Show(
+            string.Join(Environment.NewLine, lines),
+            $"About {_branding.AppDisplayName}",
+            System.Windows.MessageBoxButton.OK,
+            System.Windows.MessageBoxImage.Information);
     }
 
     private void SetupHotkey(AppSettings settings)
