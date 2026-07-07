@@ -29,6 +29,14 @@ public sealed class FoundryLocalClient : IFoundryLocalClient
             ? customPrompt
             : mode.GetSystemPrompt();
 
+        // Language anchor. Qwen models (trained on mixed English + Chinese
+        // data) sometimes drift to Chinese output when the system prompt is
+        // short or the input is ambiguous. Prepending an explicit language
+        // instruction pins the output to whatever the input was written in.
+        systemPrompt =
+            "Reply in the same language as the input text. If the input is in English, respond in English.\n\n"
+            + systemPrompt;
+
         // Compute temperature: mode baseline + creativity offset
         double finalTemp;
         if (temperature.HasValue)
