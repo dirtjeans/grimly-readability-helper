@@ -756,12 +756,29 @@ public partial class EditorPopupViewModel : ObservableObject
         IsRefiningCase = true;
         try
         {
+            // Few-shot prompt. Small models (phi-3-mini) tend to over-capitalize
+            // when told "fix proper nouns" alone — they default to title case.
+            // The examples nail down the exact difference.
             const string prompt =
-                "You will be given text that has already been converted to sentence case. " +
-                "Your only job is to fix any proper-noun capitalization that was missed — " +
-                "keep place names like 'New York', product names, and personal names " +
-                "capitalized. Do not change anything else: no rewording, no punctuation " +
-                "changes, no reformatting. Preserve line breaks and whitespace exactly. " +
+                "Convert the text to sentence case. Rules:\n" +
+                "  - Capitalize only the first word of each sentence.\n" +
+                "  - Capitalize proper nouns: personal names, cities, countries, " +
+                "companies, products, programming languages.\n" +
+                "  - Everything else stays lowercase — including nouns, verbs, " +
+                "adjectives, and prepositions. Do NOT use title case.\n" +
+                "  - Do not add, remove, or reword anything. Preserve punctuation " +
+                "and whitespace exactly.\n" +
+                "\n" +
+                "Examples:\n" +
+                "Input:  the best restaurant in new york\n" +
+                "Output: The best restaurant in New York\n" +
+                "\n" +
+                "Input:  javascript runs faster than python on this benchmark\n" +
+                "Output: JavaScript runs faster than Python on this benchmark\n" +
+                "\n" +
+                "Input:  she baked an apple pie for kenneth\n" +
+                "Output: She baked an apple pie for Kenneth\n" +
+                "\n" +
                 "Return ONLY the corrected text, with no explanation, quotes, or preamble.";
 
             var refined = await _foundryClient.GetEditedTextAsync(
@@ -777,6 +794,13 @@ public partial class EditorPopupViewModel : ObservableObject
             refined = refined.Trim().Trim('"');
             if (refined == deterministicResult) return;
 
+            // Sanity check: if the LLM went off-script and title-cased the
+            // text, the capitalized-word ratio will jump. Sentence case is
+            // typically 5–15%; title case is 50–80%. Reject anything where
+            // the refinement adds >20 points beyond the deterministic pass,
+            // or exceeds 35% absolute.
+            if (LooksTitleCased(deterministicResult, refined)) return;
+
             var diffs = _diffService.ComputeDiff(originalText, refined);
             var segments = _diffService.GroupIntoSegments(diffs);
             ReviewSegments = new ObservableCollection<ReviewSegment>(segments);
@@ -788,6 +812,33 @@ public partial class EditorPopupViewModel : ObservableObject
         {
             IsRefiningCase = false;
         }
+    }
+
+    /// <summary>
+    /// True when the LLM's "refined" text has substantially more capitalized
+    /// words than the deterministic result — signaling it drifted to title
+    /// case instead of just fixing proper nouns.
+    /// </summary>
+    private static bool LooksTitleCased(string deterministic, string refined)
+    {
+        double detRatio = CapitalizedWordRatio(deterministic);
+        double refRatio = CapitalizedWordRatio(refined);
+        return refRatio - detRatio > 0.20 || refRatio > 0.35;
+    }
+
+    private static double CapitalizedWordRatio(string text)
+    {
+        int words = 0, caps = 0;
+        int i = 0;
+        while (i < text.Length)
+        {
+            while (i < text.Length && !char.IsLetter(text[i])) i++;
+            if (i >= text.Length) break;
+            words++;
+            if (char.IsUpper(text[i])) caps++;
+            while (i < text.Length && char.IsLetter(text[i])) i++;
+        }
+        return words == 0 ? 0 : (double)caps / words;
     }
 
     public void ToggleChange(int segmentId)
