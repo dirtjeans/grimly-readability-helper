@@ -23,7 +23,6 @@ public partial class EditorPopupViewModel : ObservableObject
     private CancellationTokenSource? _cts;
     private CancellationTokenSource? _liveCheckCts;
     private CancellationTokenSource? _backgroundReconnectCts;
-    private CancellationTokenSource? _caseRefinementCts;
     private readonly Stack<string> _undoStack = new();
     private string _preRevisionText = "";
     private readonly HashSet<EditingMode> _appliedModes = new();
@@ -116,13 +115,6 @@ public partial class EditorPopupViewModel : ObservableObject
 
     /// <summary>Convenience flag for XAML visibility. Tracks <c>Violations.Count &gt; 0</c>.</summary>
     public bool HasViolations => Violations.Count > 0;
-
-    /// <summary>
-    /// True while the LLM is silently refining a sentence-case result.
-    /// Drives a subtle "Refining…" indicator in the review-diff area.
-    /// </summary>
-    [ObservableProperty]
-    private bool _isRefiningCase;
 
     /// <summary>Hint text shown above the violations list.</summary>
     public string QuickFixHint =>
@@ -711,8 +703,6 @@ public partial class EditorPopupViewModel : ObservableObject
         if (string.IsNullOrEmpty(styleName)) return;
         if (!Enum.TryParse<CaseStyle>(styleName, ignoreCase: false, out var style)) return;
 
-        _caseRefinementCts?.Cancel();
-
         var rewritten = _caseFormatter.Apply(WorkingText, style);
         if (rewritten == WorkingText) return;
 
@@ -730,115 +720,6 @@ public partial class EditorPopupViewModel : ObservableObject
             RebuildWorkingText();
             ReviewSegmentsChanged?.Invoke();
         }
-
-        // Sentence case is the only mode where LLM judgment adds value —
-        // AP and Chicago rules are unambiguous by construction. Kick off a
-        // background refinement pass that silently corrects any proper-noun
-        // capitalization the deterministic pass got wrong. If the user
-        // engages with the review UI before the LLM returns, the pending
-        // refinement is cancelled and their choices stand.
-        if (style == CaseStyle.Sentence && ConnectionStatus == ConnectionStatus.Connected)
-        {
-            _caseRefinementCts = new CancellationTokenSource();
-            _ = RefineSentenceCaseAsync(_preRevisionText, rewritten, _caseRefinementCts.Token);
-        }
-    }
-
-    /// <summary>
-    /// Background LLM pass that reviews the deterministic sentence-case
-    /// result and quietly fixes any proper-noun capitalization we missed.
-    /// If the user touches anything during the wait, the refinement is
-    /// cancelled and their state stays intact. Failure modes are all
-    /// silent — the deterministic result stays on-screen.
-    /// </summary>
-    private async Task RefineSentenceCaseAsync(string originalText, string deterministicResult, CancellationToken ct)
-    {
-        IsRefiningCase = true;
-        try
-        {
-            // Few-shot prompt. Small models (phi-3-mini) tend to over-capitalize
-            // when told "fix proper nouns" alone — they default to title case.
-            // The examples nail down the exact difference.
-            const string prompt =
-                "Convert the text to sentence case. Rules:\n" +
-                "  - Capitalize only the first word of each sentence.\n" +
-                "  - Capitalize proper nouns: personal names, cities, countries, " +
-                "companies, products, programming languages.\n" +
-                "  - Everything else stays lowercase — including nouns, verbs, " +
-                "adjectives, and prepositions. Do NOT use title case.\n" +
-                "  - Do not add, remove, or reword anything. Preserve punctuation " +
-                "and whitespace exactly.\n" +
-                "\n" +
-                "Examples:\n" +
-                "Input:  the best restaurant in new york\n" +
-                "Output: The best restaurant in New York\n" +
-                "\n" +
-                "Input:  javascript runs faster than python on this benchmark\n" +
-                "Output: JavaScript runs faster than Python on this benchmark\n" +
-                "\n" +
-                "Input:  she baked an apple pie for kenneth\n" +
-                "Output: She baked an apple pie for Kenneth\n" +
-                "\n" +
-                "Return ONLY the corrected text, with no explanation, quotes, or preamble.";
-
-            var refined = await _foundryClient.GetEditedTextAsync(
-                deterministicResult,
-                EditingMode.CustomPrompt,
-                prompt,
-                ct,
-                temperature: 0.0);
-
-            if (ct.IsCancellationRequested) return;
-            if (string.IsNullOrWhiteSpace(refined)) return;
-
-            refined = refined.Trim().Trim('"');
-            if (refined == deterministicResult) return;
-
-            // Sanity check: if the LLM went off-script and title-cased the
-            // text, the capitalized-word ratio will jump. Sentence case is
-            // typically 5–15%; title case is 50–80%. Reject anything where
-            // the refinement adds >20 points beyond the deterministic pass,
-            // or exceeds 35% absolute.
-            if (LooksTitleCased(deterministicResult, refined)) return;
-
-            var diffs = _diffService.ComputeDiff(originalText, refined);
-            var segments = _diffService.GroupIntoSegments(diffs);
-            ReviewSegments = new ObservableCollection<ReviewSegment>(segments);
-            RebuildWorkingText();
-            ReviewSegmentsChanged?.Invoke();
-        }
-        catch { /* silent */ }
-        finally
-        {
-            IsRefiningCase = false;
-        }
-    }
-
-    /// <summary>
-    /// True when the LLM's "refined" text has substantially more capitalized
-    /// words than the deterministic result — signaling it drifted to title
-    /// case instead of just fixing proper nouns.
-    /// </summary>
-    private static bool LooksTitleCased(string deterministic, string refined)
-    {
-        double detRatio = CapitalizedWordRatio(deterministic);
-        double refRatio = CapitalizedWordRatio(refined);
-        return refRatio - detRatio > 0.20 || refRatio > 0.35;
-    }
-
-    private static double CapitalizedWordRatio(string text)
-    {
-        int words = 0, caps = 0;
-        int i = 0;
-        while (i < text.Length)
-        {
-            while (i < text.Length && !char.IsLetter(text[i])) i++;
-            if (i >= text.Length) break;
-            words++;
-            if (char.IsUpper(text[i])) caps++;
-            while (i < text.Length && char.IsLetter(text[i])) i++;
-        }
-        return words == 0 ? 0 : (double)caps / words;
     }
 
     public void ToggleChange(int segmentId)
@@ -846,7 +727,6 @@ public partial class EditorPopupViewModel : ObservableObject
         var segment = ReviewSegments.FirstOrDefault(s => s.Id == segmentId && s.IsChange);
         if (segment == null) return;
 
-        _caseRefinementCts?.Cancel();
         segment.Toggle();
         RebuildWorkingText();
         ReviewSegmentsChanged?.Invoke();
@@ -866,7 +746,6 @@ public partial class EditorPopupViewModel : ObservableObject
     [RelayCommand]
     private void AcceptAllChanges()
     {
-        _caseRefinementCts?.Cancel();
         foreach (var seg in ReviewSegments.Where(s => s.IsChange))
             seg.State = ChangeState.Accepted;
         RebuildWorkingText();
@@ -876,7 +755,6 @@ public partial class EditorPopupViewModel : ObservableObject
     [RelayCommand]
     private void RejectAllChanges()
     {
-        _caseRefinementCts?.Cancel();
         foreach (var seg in ReviewSegments.Where(s => s.IsChange))
             seg.State = ChangeState.Rejected;
         RebuildWorkingText();
@@ -886,7 +764,6 @@ public partial class EditorPopupViewModel : ObservableObject
     [RelayCommand]
     private void ApplyReview()
     {
-        _caseRefinementCts?.Cancel();
         // Pending segments resolve to AddedText, so WorkingText already reflects
         // the fully-revised output. Just tear down the review UI.
         IsReviewing = false;
@@ -903,7 +780,6 @@ public partial class EditorPopupViewModel : ObservableObject
     {
         if (_undoStack.Count > 0)
         {
-            _caseRefinementCts?.Cancel();
             WorkingText = _undoStack.Pop();
             CanUndo = _undoStack.Count > 0;
             IsReviewing = false;
@@ -915,7 +791,6 @@ public partial class EditorPopupViewModel : ObservableObject
     [RelayCommand]
     private async Task AcceptAsync()
     {
-        _caseRefinementCts?.Cancel();
         // If still reviewing, finalize first
         if (IsReviewing)
             ApplyReview();
@@ -932,7 +807,6 @@ public partial class EditorPopupViewModel : ObservableObject
         _cts?.Cancel();
         _liveCheckCts?.Cancel();
         _backgroundReconnectCts?.Cancel();
-        _caseRefinementCts?.Cancel();
         RequestClose?.Invoke();
     }
 

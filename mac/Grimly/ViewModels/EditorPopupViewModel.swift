@@ -176,8 +176,7 @@ class EditorPopupViewModel: ObservableObject {
     /// Deterministic — no LLM round-trip. Used by the "Case" dropdown for
     /// AP title case, Chicago title case, and sentence case.
     func applyCase(_ style: CaseStyle) {
-        let rewritten = CaseFormatter.apply(workingText, style: style,
-                                             properNouns: properNouns, spell: spellChecker)
+        let rewritten = CaseFormatter.apply(workingText, style: style)
         guard rewritten != workingText else { return }
 
         preRevisionText = workingText

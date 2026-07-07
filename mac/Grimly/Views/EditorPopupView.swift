@@ -123,7 +123,6 @@ struct EditorPopupView: View {
                 Menu {
                     Button("AP title case")      { viewModel.applyCase(.apTitle) }
                     Button("Chicago title case") { viewModel.applyCase(.chicagoTitle) }
-                    Button("Sentence case")      { viewModel.applyCase(.sentence) }
                 } label: {
                     Text("Case ▾")
                         .font(.system(size: 10))

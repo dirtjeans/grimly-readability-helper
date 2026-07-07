@@ -42,11 +42,9 @@ Then in Xcode:
 
 Known gotcha: the Xcode project had stale references to `Illumio*.swift` files from earlier work — those were stripped in commit `25554f6`. If Xcode still complains about a missing `IllumioTheme.swift` or `IllumioModePillButton.swift`, someone re-added them by mistake; delete those references.
 
-## Step 2: two features that exist on Windows but NOT on Mac yet
+## Step 2: one feature that exists on Windows but NOT on Mac yet
 
-These are optional for the release but the user will probably want them soon. Confirm with the user before diving in.
-
-### 2a. About menu item (Windows commit `pending`)
+### About menu item
 
 Windows added an "About" item to the tray-icon context menu that shows a `MessageBox` with app name + version + build date. Mac doesn't have a tray menu — the natural home is the AppKit main menu bar (App menu → About Grimly) or the menu-bar-icon menu (`MenuBarView.swift`).
 
@@ -54,29 +52,9 @@ Simplest approach: add a `Button("About Grimly") { showAbout() }` to `MenuBarVie
 
 Version to display: **1.0.0**. Build date: read the app bundle's modification date.
 
-### 2b. LLM refinement of sentence case (Windows commit `pending`)
+### (Note on sentence case)
 
-On Windows, clicking Case → Sentence case now:
-
-1. Shows the deterministic result instantly (as before)
-2. Kicks off a background LLM call that reviews the deterministic result and quietly corrects any proper-noun capitalization we missed
-3. When the LLM returns (~1–3 s later), the review-diff panel silently rebuilds — **unless** the user has already toggled a segment, hit Undo, clicked Paste, or run another Case operation, in which case the refinement is cancelled and their state stands
-4. A subtle "· Refining…" text appears next to the review header while the LLM is thinking
-
-The Windows implementation lives in `src/Grimly.Core/ViewModels/EditorPopupViewModel.cs`:
-
-- `_caseRefinementCts` field
-- `IsRefiningCase` observable property (drives the indicator)
-- `RefineSentenceCaseAsync` method
-- `_caseRefinementCts?.Cancel()` is called from every engagement hook (`ToggleChange`, `AcceptAllChanges`, `RejectAllChanges`, `ApplyReview`, `Undo`, `AcceptAsync`, `Dismiss`, and at the start of a fresh `ApplyCase`)
-
-The LLM prompt is:
-
-> You will be given text that has already been converted to sentence case. Your only job is to fix any proper-noun capitalization that was missed — keep place names like 'New York', product names, and personal names capitalized. Do not change anything else: no rewording, no punctuation changes, no reformatting. Preserve line breaks and whitespace exactly. Return ONLY the corrected text, with no explanation, quotes, or preamble.
-
-Sent to Foundry Local at temperature 0.0. Uses `EditingMode.CustomPrompt` on the existing `FoundryLocalClient`.
-
-Mac port: mirror the same structure in `mac/Grimly/ViewModels/EditorPopupViewModel.swift`. Use `Task` for the background work, cancel via `Task.cancel()`. Bind an `@Published var isRefiningCase = false` to a small italic `Text("Refining…")` in the review-diff header (in `EditorPopupView.swift`).
+A prior version of Grimly had Sentence case and an LLM refinement pass that quietly double-checked proper-noun capitalization. Both were removed. Sentence case turned out to be a use case writers rarely need to look up (unlike title case, where AP vs Chicago matters), and phi-3-mini's context reading wasn't strong enough to disambiguate common-word/proper-noun collisions (nice/Nice, apple/Apple). The Case dropdown now offers **AP title case** and **Chicago title case** only. Don't add sentence case back without a fresh design conversation with the user.
 
 ## Step 3: produce Grimly.app.zip and upload to the release
 
