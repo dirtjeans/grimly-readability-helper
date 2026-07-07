@@ -23,6 +23,7 @@ public partial class EditorPopupViewModel : ObservableObject
     private CancellationTokenSource? _cts;
     private CancellationTokenSource? _liveCheckCts;
     private CancellationTokenSource? _backgroundReconnectCts;
+    private CancellationTokenSource? _caseRefinementCts;
     private readonly Stack<string> _undoStack = new();
     private string _preRevisionText = "";
     private readonly HashSet<EditingMode> _appliedModes = new();
@@ -115,6 +116,13 @@ public partial class EditorPopupViewModel : ObservableObject
 
     /// <summary>Convenience flag for XAML visibility. Tracks <c>Violations.Count &gt; 0</c>.</summary>
     public bool HasViolations => Violations.Count > 0;
+
+    /// <summary>
+    /// True while the LLM is silently refining a sentence-case result.
+    /// Drives a subtle "Refining…" indicator in the review-diff area.
+    /// </summary>
+    [ObservableProperty]
+    private bool _isRefiningCase;
 
     /// <summary>Hint text shown above the violations list.</summary>
     public string QuickFixHint =>
@@ -703,6 +711,8 @@ public partial class EditorPopupViewModel : ObservableObject
         if (string.IsNullOrEmpty(styleName)) return;
         if (!Enum.TryParse<CaseStyle>(styleName, ignoreCase: false, out var style)) return;
 
+        _caseRefinementCts?.Cancel();
+
         var rewritten = _caseFormatter.Apply(WorkingText, style);
         if (rewritten == WorkingText) return;
 
@@ -720,6 +730,64 @@ public partial class EditorPopupViewModel : ObservableObject
             RebuildWorkingText();
             ReviewSegmentsChanged?.Invoke();
         }
+
+        // Sentence case is the only mode where LLM judgment adds value —
+        // AP and Chicago rules are unambiguous by construction. Kick off a
+        // background refinement pass that silently corrects any proper-noun
+        // capitalization the deterministic pass got wrong. If the user
+        // engages with the review UI before the LLM returns, the pending
+        // refinement is cancelled and their choices stand.
+        if (style == CaseStyle.Sentence && ConnectionStatus == ConnectionStatus.Connected)
+        {
+            _caseRefinementCts = new CancellationTokenSource();
+            _ = RefineSentenceCaseAsync(_preRevisionText, rewritten, _caseRefinementCts.Token);
+        }
+    }
+
+    /// <summary>
+    /// Background LLM pass that reviews the deterministic sentence-case
+    /// result and quietly fixes any proper-noun capitalization we missed.
+    /// If the user touches anything during the wait, the refinement is
+    /// cancelled and their state stays intact. Failure modes are all
+    /// silent — the deterministic result stays on-screen.
+    /// </summary>
+    private async Task RefineSentenceCaseAsync(string originalText, string deterministicResult, CancellationToken ct)
+    {
+        IsRefiningCase = true;
+        try
+        {
+            const string prompt =
+                "You will be given text that has already been converted to sentence case. " +
+                "Your only job is to fix any proper-noun capitalization that was missed — " +
+                "keep place names like 'New York', product names, and personal names " +
+                "capitalized. Do not change anything else: no rewording, no punctuation " +
+                "changes, no reformatting. Preserve line breaks and whitespace exactly. " +
+                "Return ONLY the corrected text, with no explanation, quotes, or preamble.";
+
+            var refined = await _foundryClient.GetEditedTextAsync(
+                deterministicResult,
+                EditingMode.CustomPrompt,
+                prompt,
+                ct,
+                temperature: 0.0);
+
+            if (ct.IsCancellationRequested) return;
+            if (string.IsNullOrWhiteSpace(refined)) return;
+
+            refined = refined.Trim().Trim('"');
+            if (refined == deterministicResult) return;
+
+            var diffs = _diffService.ComputeDiff(originalText, refined);
+            var segments = _diffService.GroupIntoSegments(diffs);
+            ReviewSegments = new ObservableCollection<ReviewSegment>(segments);
+            RebuildWorkingText();
+            ReviewSegmentsChanged?.Invoke();
+        }
+        catch { /* silent */ }
+        finally
+        {
+            IsRefiningCase = false;
+        }
     }
 
     public void ToggleChange(int segmentId)
@@ -727,6 +795,7 @@ public partial class EditorPopupViewModel : ObservableObject
         var segment = ReviewSegments.FirstOrDefault(s => s.Id == segmentId && s.IsChange);
         if (segment == null) return;
 
+        _caseRefinementCts?.Cancel();
         segment.Toggle();
         RebuildWorkingText();
         ReviewSegmentsChanged?.Invoke();
@@ -746,6 +815,7 @@ public partial class EditorPopupViewModel : ObservableObject
     [RelayCommand]
     private void AcceptAllChanges()
     {
+        _caseRefinementCts?.Cancel();
         foreach (var seg in ReviewSegments.Where(s => s.IsChange))
             seg.State = ChangeState.Accepted;
         RebuildWorkingText();
@@ -755,6 +825,7 @@ public partial class EditorPopupViewModel : ObservableObject
     [RelayCommand]
     private void RejectAllChanges()
     {
+        _caseRefinementCts?.Cancel();
         foreach (var seg in ReviewSegments.Where(s => s.IsChange))
             seg.State = ChangeState.Rejected;
         RebuildWorkingText();
@@ -764,6 +835,7 @@ public partial class EditorPopupViewModel : ObservableObject
     [RelayCommand]
     private void ApplyReview()
     {
+        _caseRefinementCts?.Cancel();
         // Pending segments resolve to AddedText, so WorkingText already reflects
         // the fully-revised output. Just tear down the review UI.
         IsReviewing = false;
@@ -780,6 +852,7 @@ public partial class EditorPopupViewModel : ObservableObject
     {
         if (_undoStack.Count > 0)
         {
+            _caseRefinementCts?.Cancel();
             WorkingText = _undoStack.Pop();
             CanUndo = _undoStack.Count > 0;
             IsReviewing = false;
@@ -791,6 +864,7 @@ public partial class EditorPopupViewModel : ObservableObject
     [RelayCommand]
     private async Task AcceptAsync()
     {
+        _caseRefinementCts?.Cancel();
         // If still reviewing, finalize first
         if (IsReviewing)
             ApplyReview();
@@ -807,6 +881,7 @@ public partial class EditorPopupViewModel : ObservableObject
         _cts?.Cancel();
         _liveCheckCts?.Cancel();
         _backgroundReconnectCts?.Cancel();
+        _caseRefinementCts?.Cancel();
         RequestClose?.Invoke();
     }
 
