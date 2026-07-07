@@ -22,11 +22,14 @@ public interface IProperNounService
     bool IsAmbiguous(string word);
 
     /// <summary>
-    /// Sentence-case helper: should we preserve the capitalization of this
-    /// word during a title→sentence conversion? True when the word is a
-    /// proper noun AND not in the ambiguous stoplist.
+    /// True if the pair (first, second) is a known multi-word proper noun
+    /// ("New York", "Los Angeles", "Sri Lanka", …). Both parts are treated
+    /// case-insensitively. Used by sentence-case conversion to keep phrases
+    /// like "New York" from becoming "new york" — the individual words
+    /// "new" and "york" are common enough that we can't safely preserve
+    /// them alone, but the bigram is unambiguous.
     /// </summary>
-    bool ShouldPreserveInSentenceCase(string word);
+    bool IsBigramProperNoun(string first, string second);
 }
 
 /// <summary>
@@ -44,11 +47,13 @@ public sealed class ProperNounService : IProperNounService
 {
     private readonly HashSet<string> _properNouns;
     private readonly HashSet<string> _ambiguous;
+    private readonly HashSet<string> _bigrams;
 
     public ProperNounService()
     {
         _properNouns = LoadEmbeddedList("Grimly.Dictionaries.proper_nouns.txt");
         _ambiguous = new HashSet<string>(AmbiguousStoplist, StringComparer.OrdinalIgnoreCase);
+        _bigrams = new HashSet<string>(MultiWordProperNouns, StringComparer.OrdinalIgnoreCase);
     }
 
     public bool IsProperNoun(string word) =>
@@ -57,8 +62,9 @@ public sealed class ProperNounService : IProperNounService
     public bool IsAmbiguous(string word) =>
         !string.IsNullOrEmpty(word) && _ambiguous.Contains(word);
 
-    public bool ShouldPreserveInSentenceCase(string word) =>
-        IsProperNoun(word) && !IsAmbiguous(word);
+    public bool IsBigramProperNoun(string first, string second) =>
+        !string.IsNullOrEmpty(first) && !string.IsNullOrEmpty(second) &&
+        _bigrams.Contains(first + " " + second);
 
     private static HashSet<string> LoadEmbeddedList(string resourceName)
     {
@@ -117,5 +123,57 @@ public sealed class ProperNounService : IProperNounService
         "java", "python", "ruby", "swift", "go", "rust", "dart", "kotlin",
         "scratch", "processing", "rails", "django", "flask", "spring",
         "storm", "spark", "flame", "atom", "code", "sublime",
+    };
+
+    /// <summary>
+    /// Two-word proper nouns whose individual parts are common English
+    /// ("New York", "Los Angeles", "Hong Kong", …) and would otherwise get
+    /// downcased in sentence case. Space-separated; matched case-insensitive.
+    /// </summary>
+    private static readonly string[] MultiWordProperNouns =
+    {
+        // US places
+        "new york", "los angeles", "san francisco", "san diego",
+        "san antonio", "san jose", "santa fe", "santa monica",
+        "santa barbara", "santa clara", "santa cruz", "las vegas",
+        "new orleans", "new mexico", "new jersey", "new hampshire",
+        "new haven", "new england", "north carolina", "south carolina",
+        "north dakota", "south dakota", "west virginia", "rhode island",
+        "long island", "long beach", "salt lake", "las cruces", "el paso",
+        "grand rapids", "grand canyon", "st louis", "st paul", "st petersburg",
+        "silicon valley", "wall street", "central park", "times square",
+        "empire state",
+
+        // Countries and regions
+        "new zealand", "sri lanka", "hong kong", "cape town", "cape verde",
+        "cape breton", "kuala lumpur", "buenos aires", "rio de", "de janeiro",
+        "de la", "sao paulo", "abu dhabi", "el salvador", "costa rica",
+        "puerto rico", "dominican republic", "czech republic",
+        "united states", "united kingdom", "united nations",
+        "united arab", "arab emirates", "north korea", "south korea",
+        "north america", "south america", "south africa", "south sudan",
+        "west africa", "east africa", "middle east", "far east",
+        "eastern europe", "western europe", "central europe",
+        "great britain", "great wall", "vatican city", "cape cod",
+
+        // People (patterns like "Van Buren", "de la Cruz", "de Gaulle")
+        "van gogh", "van buren", "van halen", "de gaulle", "el greco",
+        "st francis", "st thomas", "st peter",
+
+        // Historical / political phrases
+        "cold war", "civil war", "world war", "french revolution",
+        "industrial revolution", "great depression", "middle ages",
+        "iron age", "bronze age", "stone age", "big bang", "milky way",
+        "solar system",
+
+        // Companies + brands
+        "bank of", "of america", "wells fargo", "morgan stanley", "jp morgan",
+        "general motors", "general electric", "home depot", "walt disney",
+        "warner bros", "american airlines", "united airlines",
+
+        // Recurring event / concept phrases
+        "black friday", "cyber monday", "labor day", "memorial day",
+        "independence day", "new year", "mother's day", "father's day",
+        "st patrick", "st valentine",
     };
 }

@@ -12,6 +12,7 @@ final class ProperNounService {
 
     private let properNouns: Set<String>
     private let ambiguous: Set<String>
+    private let bigrams: Set<String>
 
     init() {
         var set: Set<String> = []
@@ -26,6 +27,7 @@ final class ProperNounService {
         }
         self.properNouns = set
         self.ambiguous = Set(Self.ambiguousStoplist.map { $0.lowercased() })
+        self.bigrams = Set(Self.multiWordProperNouns.map { $0.lowercased() })
     }
 
     /// True if the word matches an entry in the bundled proper-noun list.
@@ -44,11 +46,12 @@ final class ProperNounService {
         return ambiguous.contains(word.lowercased())
     }
 
-    /// Sentence-case helper: should we preserve the capitalization of this
-    /// word during a title→sentence conversion? True when the word is a
-    /// proper noun AND not in the ambiguous stoplist.
-    func shouldPreserveInSentenceCase(_ word: String) -> Bool {
-        return isProperNoun(word) && !isAmbiguous(word)
+    /// True if the pair (first, second) is a known multi-word proper noun
+    /// ("New York", "Los Angeles", "Sri Lanka", …). Both parts are treated
+    /// case-insensitively.
+    func isBigramProperNoun(_ first: String, _ second: String) -> Bool {
+        guard !first.isEmpty, !second.isEmpty else { return false }
+        return bigrams.contains("\(first.lowercased()) \(second.lowercased())")
     }
 
     /// Words that are proper nouns AND common English. Written down here
@@ -85,5 +88,54 @@ final class ProperNounService {
         "java", "python", "ruby", "swift", "go", "rust", "dart", "kotlin",
         "scratch", "processing", "rails", "django", "flask", "spring",
         "storm", "spark", "flame", "atom", "code", "sublime",
+    ]
+
+    /// Two-word proper nouns whose individual parts are common English
+    /// ("New York", "Los Angeles", "Hong Kong", …) and would otherwise
+    /// get downcased in sentence case. Space-separated; case-insensitive.
+    private static let multiWordProperNouns: [String] = [
+        // US places
+        "new york", "los angeles", "san francisco", "san diego",
+        "san antonio", "san jose", "santa fe", "santa monica",
+        "santa barbara", "santa clara", "santa cruz", "las vegas",
+        "new orleans", "new mexico", "new jersey", "new hampshire",
+        "new haven", "new england", "north carolina", "south carolina",
+        "north dakota", "south dakota", "west virginia", "rhode island",
+        "long island", "long beach", "salt lake", "las cruces", "el paso",
+        "grand rapids", "grand canyon", "st louis", "st paul", "st petersburg",
+        "silicon valley", "wall street", "central park", "times square",
+        "empire state",
+
+        // Countries + regions
+        "new zealand", "sri lanka", "hong kong", "cape town", "cape verde",
+        "cape breton", "kuala lumpur", "buenos aires", "rio de", "de janeiro",
+        "de la", "sao paulo", "abu dhabi", "el salvador", "costa rica",
+        "puerto rico", "dominican republic", "czech republic",
+        "united states", "united kingdom", "united nations",
+        "united arab", "arab emirates", "north korea", "south korea",
+        "north america", "south america", "south africa", "south sudan",
+        "west africa", "east africa", "middle east", "far east",
+        "eastern europe", "western europe", "central europe",
+        "great britain", "great wall", "vatican city", "cape cod",
+
+        // People (patterns like "Van Buren", "de Gaulle")
+        "van gogh", "van buren", "van halen", "de gaulle", "el greco",
+        "st francis", "st thomas", "st peter",
+
+        // Historical / political phrases
+        "cold war", "civil war", "world war", "french revolution",
+        "industrial revolution", "great depression", "middle ages",
+        "iron age", "bronze age", "stone age", "big bang", "milky way",
+        "solar system",
+
+        // Companies + brands
+        "bank of", "of america", "wells fargo", "morgan stanley", "jp morgan",
+        "general motors", "general electric", "home depot", "walt disney",
+        "warner bros", "american airlines", "united airlines",
+
+        // Recurring event / concept phrases
+        "black friday", "cyber monday", "labor day", "memorial day",
+        "independence day", "new year", "mother's day", "father's day",
+        "st patrick", "st valentine",
     ]
 }

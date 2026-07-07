@@ -54,11 +54,12 @@ enum CaseFormatter {
     // MARK: - Public API
 
     static func apply(_ text: String, style: CaseStyle,
-                      properNouns: ProperNounService? = nil) -> String {
+                      properNouns: ProperNounService? = nil,
+                      spell: SpellCheckerService? = nil) -> String {
         switch style {
         case .apTitle:      return titleCase(text, chicago: false)
         case .chicagoTitle: return titleCase(text, chicago: true)
-        case .sentence:     return sentenceCase(text, properNouns: properNouns)
+        case .sentence:     return sentenceCase(text, properNouns: properNouns, spell: spell)
         }
     }
 
@@ -133,17 +134,28 @@ enum CaseFormatter {
 
     // MARK: - Sentence case
 
-    private static func sentenceCase(_ text: String, properNouns: ProperNounService?) -> String {
+    private static func sentenceCase(_ text: String,
+                                     properNouns: ProperNounService?,
+                                     spell: SpellCheckerService?) -> String {
         guard !text.isEmpty else { return text }
 
         var tokens = tokenize(text)
+
+        // Preprocess: find token indices to force-preserve because they're
+        // part of a multi-word proper noun ("New York", "Los Angeles").
+        let bigramForcePreserve = findBigramMatches(tokens, properNouns: properNouns)
+
         var nextIsSentenceStart = true
 
         for i in tokens.indices {
             let tok = tokens[i]
             if tok.isEmpty || tok.first!.isWhitespace { continue }
 
-            tokens[i] = sentenceCaseWord(tok, isSentenceStart: nextIsSentenceStart, properNouns: properNouns)
+            tokens[i] = sentenceCaseWord(tok,
+                                         isSentenceStart: nextIsSentenceStart,
+                                         bigramForcePreserve: bigramForcePreserve.contains(i),
+                                         properNouns: properNouns,
+                                         spell: spell)
 
             // Does this token end in sentence-terminal punctuation?
             nextIsSentenceStart = false
@@ -158,8 +170,42 @@ enum CaseFormatter {
         return tokens.joined()
     }
 
+    /// Walk the token array and return indices to force-preserve because
+    /// they participate in a known multi-word proper-noun bigram.
+    private static func findBigramMatches(_ tokens: [String],
+                                          properNouns: ProperNounService?) -> Set<Int> {
+        var result: Set<Int> = []
+        guard let properNouns = properNouns else { return result }
+        let wordIndices = tokens.indices.filter {
+            !tokens[$0].isEmpty && !tokens[$0].first!.isWhitespace
+        }
+        for k in 0..<max(0, wordIndices.count - 1) {
+            let a = extractCleanCore(tokens[wordIndices[k]])
+            let b = extractCleanCore(tokens[wordIndices[k + 1]])
+            if a.isEmpty || b.isEmpty { continue }
+            if properNouns.isBigramProperNoun(a, b) {
+                result.insert(wordIndices[k])
+                result.insert(wordIndices[k + 1])
+            }
+        }
+        return result
+    }
+
+    /// Strip leading/trailing punctuation from a token, return the letter core.
+    private static func extractCleanCore(_ token: String) -> String {
+        let chars = Array(token)
+        var lead = 0
+        while lead < chars.count, !(chars[lead].isLetter || chars[lead].isNumber) { lead += 1 }
+        var trailStart = chars.count
+        while trailStart > lead, !(chars[trailStart - 1].isLetter || chars[trailStart - 1].isNumber) { trailStart -= 1 }
+        if lead >= trailStart { return "" }
+        return String(chars[lead..<trailStart])
+    }
+
     private static func sentenceCaseWord(_ token: String, isSentenceStart: Bool,
-                                         properNouns: ProperNounService?) -> String {
+                                         bigramForcePreserve: Bool,
+                                         properNouns: ProperNounService?,
+                                         spell: SpellCheckerService?) -> String {
         let (lead, core, trail) = splitPunctuation(token)
         guard !core.isEmpty else { return token }
 
@@ -179,9 +225,24 @@ enum CaseFormatter {
                 wordStart = false
                 continue
             }
-            // Known proper noun (Kenneth, London, JavaScript, New York, …)
-            // that isn't in the ambiguous stoplist — preserve capitalization.
-            if properNouns?.shouldPreserveInSentenceCase(part) == true {
+            // Bigram-forced preservation: this token is part of a known
+            // multi-word proper noun ("New York", "Los Angeles"). Capitalize
+            // regardless of whether the individual word is common English.
+            if bigramForcePreserve {
+                parts[i] = capitalize(part)
+                wordStart = false
+                continue
+            }
+            // Single-word proper noun preservation with two guards:
+            //   1. Ambiguous stoplist (bill, mark, apple, nice, turkey, …)
+            //   2. Hunspell — if the lowercased form is a known English
+            //      word, it's ambiguous even if it's on our proper-noun
+            //      list. Kills false positives for common surnames like
+            //      "Best", "Brown", "Young", "Long".
+            if let properNouns = properNouns,
+               properNouns.isProperNoun(part),
+               !properNouns.isAmbiguous(part),
+               spell?.isKnown(part.lowercased()) != true {
                 parts[i] = capitalize(part)
                 wordStart = false
                 continue
