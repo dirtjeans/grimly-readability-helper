@@ -426,11 +426,21 @@ public sealed class ApplicationHost : IDisposable
         lines.Add("Running on Microsoft Foundry Local.");
         lines.Add("Your text stays on your machine.");
 
-        System.Windows.MessageBox.Show(
-            string.Join(Environment.NewLine, lines),
-            $"About {_branding.AppDisplayName}",
-            System.Windows.MessageBoxButton.OK,
-            System.Windows.MessageBoxImage.Information);
+        // Two gotchas we work around here:
+        //   1. Called from a tray-menu Click, the ContextMenu tears down
+        //      synchronously and takes any dialog opened during the handler
+        //      with it. Deferring via Dispatcher.BeginInvoke lets the menu
+        //      finish closing before the MessageBox shows.
+        //   2. MessageBoxImage.Information plays a system chime AND adds an
+        //      icon we don't want. MessageBoxImage.None does neither.
+        _app.Dispatcher.BeginInvoke(new Action(() =>
+        {
+            System.Windows.MessageBox.Show(
+                string.Join(Environment.NewLine, lines),
+                $"About {_branding.AppDisplayName}",
+                System.Windows.MessageBoxButton.OK,
+                System.Windows.MessageBoxImage.None);
+        }));
     }
 
     private void SetupHotkey(AppSettings settings)
