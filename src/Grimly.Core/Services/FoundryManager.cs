@@ -17,6 +17,25 @@ public interface IFoundryManager
     Task<bool> ForceReconnectAsync(CancellationToken ct = default);
     Task<bool> FallbackToCpuModelAsync(CancellationToken ct = default);
     Task<bool> HealthCheckAsync(CancellationToken ct = default);
+
+    /// <summary>
+    /// Fetch the full Foundry Local model catalog by parsing
+    /// <c>foundry model list --available</c>. Cheap after first call because
+    /// the CLI caches; expect ~1–5 s the first time.
+    /// </summary>
+    Task<List<CatalogModelInfo>> GetFullCatalogAsync(CancellationToken ct = default);
+
+    /// <summary>
+    /// Download a model with streamed progress. Progress lines come from the
+    /// <c>foundry</c> CLI's stdout — usually one per percent, but format
+    /// isn't guaranteed, so we forward whatever comes back. Downloads can
+    /// run 5–30 minutes on typical connections; no internal timeout, only
+    /// the caller's <paramref name="ct"/> cancels.
+    /// </summary>
+    Task<bool> DownloadModelWithProgressAsync(
+        string modelId,
+        IProgress<string>? progress,
+        CancellationToken ct = default);
 }
 
 public enum ConnectionStatus
@@ -550,14 +569,158 @@ public sealed class FoundryManager : IFoundryManager
     /// misbehaves — a real-world symptom was a startup toast stuck on
     /// "Warming up the local model…" forever while the app was actually fine.
     /// </summary>
+    public async Task<List<CatalogModelInfo>> GetFullCatalogAsync(CancellationToken ct = default)
+    {
+        var models = new List<CatalogModelInfo>();
+
+        var (exitCode, output) = await RunFoundryCommandAsync("model list --available", ct, TimeSpan.FromMinutes(3));
+        if (exitCode != 0 || string.IsNullOrWhiteSpace(output)) return models;
+
+        var (_, cachedOutput) = await RunFoundryCommandAsync("model list", ct, TimeSpan.FromSeconds(30));
+        var cachedIds = new HashSet<string>(ParseModelAliases(cachedOutput), StringComparer.OrdinalIgnoreCase);
+
+        foreach (var row in ParseCatalogRows(output))
+        {
+            var cached = cachedIds.Contains(row.Id);
+            models.Add(new CatalogModelInfo(row.Id, row.Device, row.SizeBytes, cached));
+        }
+        return models;
+    }
+
+    private static IEnumerable<(string Id, string Device, long? SizeBytes)> ParseCatalogRows(string output)
+    {
+        var lines = output.Split('\n', StringSplitOptions.RemoveEmptyEntries);
+        int aliasIdx = -1, deviceIdx = -1, sizeIdx = -1;
+
+        foreach (var raw in lines)
+        {
+            var line = raw.TrimEnd('\r');
+            if (line.Length == 0) continue;
+
+            if (aliasIdx < 0)
+            {
+                var lower = line.ToLowerInvariant();
+                if (lower.Contains("alias") || lower.Contains("model") && lower.Contains("id"))
+                {
+                    var headers = SplitColumns(line);
+                    for (int i = 0; i < headers.Length; i++)
+                    {
+                        var h = headers[i].ToLowerInvariant();
+                        if (aliasIdx < 0 && (h.StartsWith("alias") || h.Contains("model id"))) aliasIdx = i;
+                        if (deviceIdx < 0 && h.StartsWith("device")) deviceIdx = i;
+                        if (sizeIdx < 0 && h.StartsWith("size")) sizeIdx = i;
+                    }
+                }
+                continue;
+            }
+
+            var cols = SplitColumns(line);
+            if (cols.Length <= aliasIdx) continue;
+
+            var alias = cols[aliasIdx].Trim();
+            if (alias.Length == 0 || alias.StartsWith('-')) continue;
+
+            var device = deviceIdx >= 0 && cols.Length > deviceIdx ? cols[deviceIdx].Trim() : "";
+            var size = sizeIdx >= 0 && cols.Length > sizeIdx ? ParseSizeToBytes(cols[sizeIdx].Trim()) : null;
+
+            yield return (alias, device, size);
+        }
+    }
+
+    private static IEnumerable<string> ParseModelAliases(string output)
+    {
+        foreach (var row in ParseCatalogRows(output))
+            yield return row.Id;
+    }
+
+    private static string[] SplitColumns(string line) =>
+        System.Text.RegularExpressions.Regex.Split(line, @"\s{2,}");
+
+    private static long? ParseSizeToBytes(string s)
+    {
+        if (string.IsNullOrWhiteSpace(s)) return null;
+        var digits = new string(s.Where(c => char.IsDigit(c) || c == '.').ToArray());
+        if (!double.TryParse(digits, System.Globalization.NumberStyles.Any,
+                             System.Globalization.CultureInfo.InvariantCulture, out var v)) return null;
+        var lower = s.ToLowerInvariant();
+        double multiplier = lower.Contains("mb") ? 1024.0 * 1024
+                          : lower.Contains("kb") ? 1024.0
+                          : 1024.0 * 1024 * 1024;
+        return (long)(v * multiplier);
+    }
+
+    public async Task<bool> DownloadModelWithProgressAsync(
+        string modelId,
+        IProgress<string>? progress,
+        CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(modelId)) return false;
+
+        try
+        {
+            var psi = new ProcessStartInfo
+            {
+                FileName = "foundry",
+                Arguments = $"model download {modelId}",
+                RedirectStandardInput = true,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+                CreateNoWindow = true,
+            };
+
+            using var process = Process.Start(psi);
+            if (process == null)
+            {
+                progress?.Report("Failed to start foundry process");
+                return false;
+            }
+
+            try { process.StandardInput.Close(); } catch { }
+
+            var stderrTask = process.StandardError.ReadToEndAsync(ct);
+            var reader = process.StandardOutput;
+
+            string? line;
+            while ((line = await reader.ReadLineAsync(ct)) != null)
+            {
+                if (ct.IsCancellationRequested) break;
+                var trimmed = line.Trim();
+                if (trimmed.Length > 0) progress?.Report(trimmed);
+            }
+
+            if (ct.IsCancellationRequested)
+            {
+                try { process.Kill(entireProcessTree: true); } catch { }
+                return false;
+            }
+
+            await process.WaitForExitAsync(ct);
+            _ = await stderrTask;
+            return process.ExitCode == 0;
+        }
+        catch (OperationCanceledException)
+        {
+            return false;
+        }
+        catch (Exception ex)
+        {
+            progress?.Report($"Download failed: {ex.Message}");
+            return false;
+        }
+    }
+
     private static readonly TimeSpan FoundryCommandTimeout = TimeSpan.FromMinutes(2);
 
-    private static async Task<(int exitCode, string output)> RunFoundryCommandAsync(string args, CancellationToken ct)
+    private static Task<(int exitCode, string output)> RunFoundryCommandAsync(string args, CancellationToken ct) =>
+        RunFoundryCommandAsync(args, ct, FoundryCommandTimeout);
+
+    private static async Task<(int exitCode, string output)> RunFoundryCommandAsync(string args, CancellationToken ct, TimeSpan timeout)
     {
         // Link the caller's token with an always-on timeout so we never
         // await indefinitely on a hung foundry process.
         using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-        timeoutCts.CancelAfter(FoundryCommandTimeout);
+        timeoutCts.CancelAfter(timeout);
         var token = timeoutCts.Token;
 
         try
@@ -593,7 +756,7 @@ public sealed class FoundryManager : IFoundryManager
                 // Our timeout fired, not the caller's cancellation. Kill the
                 // process tree so we don't leave orphan foundry CLI invocations.
                 try { process.Kill(entireProcessTree: true); } catch { }
-                return (-1, $"Error: `foundry {args}` timed out after {FoundryCommandTimeout.TotalSeconds:F0}s");
+                return (-1, $"Error: `foundry {args}` timed out after {timeout.TotalSeconds:F0}s");
             }
 
             var stdout = await stdoutTask;

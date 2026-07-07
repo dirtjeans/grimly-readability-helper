@@ -34,4 +34,20 @@ public partial class SettingsWindow : Window
         DialogResult = saved;
         Close();
     }
+
+    /// <summary>
+    /// Opens the model browser as a modal dialog. On successful download
+    /// the alias comes back on the browser VM which is spliced into
+    /// AvailableModels and selected.
+    /// </summary>
+    private void DownloadAnotherModel_Click(object sender, RoutedEventArgs e)
+    {
+        if (DataContext is not SettingsViewModel settingsVm) return;
+
+        var browserVm = settingsVm.CreateModelBrowser();
+        var window = new ModelBrowserWindow(browserVm) { Owner = this };
+        var result = window.ShowDialog();
+        if (result == true && !string.IsNullOrWhiteSpace(window.DownloadedModelId))
+            settingsVm.OnModelDownloaded(window.DownloadedModelId);
+    }
 }

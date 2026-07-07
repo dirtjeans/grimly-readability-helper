@@ -93,6 +93,14 @@
         <ProgressBar IsIndeterminate="True" Height="3" Margin="0,2,0,0"
                      Visibility="{Binding IsLoadingModels, Converter={StaticResource BoolToVis}}"/>
 
+        <!-- Browse full catalog to download a model not currently cached. -->
+        <TextBlock Margin="0,6,0,0">
+            <Hyperlink Foreground="{DynamicResource AcceptButtonBackgroundBrush}"
+                       Click="DownloadAnotherModel_Click">
+                Download another model…
+            </Hyperlink>
+        </TextBlock>
+
         <!-- Hotkey -->
         <TextBlock Text="Hotkey" FontWeight="SemiBold"/>
         <StackPanel Orientation="Horizontal">

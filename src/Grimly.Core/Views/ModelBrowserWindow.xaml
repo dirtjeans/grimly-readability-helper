@@ -1,0 +1,153 @@
+<Window x:Class="Grimly.Views.ModelBrowserWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Download a model"
+        Width="560" Height="480"
+        WindowStartupLocation="CenterOwner"
+        ShowInTaskbar="False"
+        Background="{DynamicResource WindowBackgroundBrush}">
+
+    <Window.Resources>
+        <BooleanToVisibilityConverter x:Key="BoolToVis"/>
+        <Style TargetType="TextBlock">
+            <Setter Property="Foreground" Value="{DynamicResource BodyForegroundBrush}"/>
+            <Setter Property="FontSize" Value="12"/>
+        </Style>
+    </Window.Resources>
+
+    <Grid Margin="14">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>  <!-- 0 header -->
+            <RowDefinition Height="Auto"/>  <!-- 1 filter row -->
+            <RowDefinition Height="*"/>     <!-- 2 list -->
+            <RowDefinition Height="Auto"/>  <!-- 3 error -->
+            <RowDefinition Height="Auto"/>  <!-- 4 progress / status -->
+            <RowDefinition Height="Auto"/>  <!-- 5 buttons -->
+        </Grid.RowDefinitions>
+
+        <!-- Header -->
+        <TextBlock Grid.Row="0" Margin="0,0,0,8" TextWrapping="Wrap"
+                   Foreground="{DynamicResource SubtleForegroundBrush}"
+                   Text="Pick a model from the Foundry Local catalog. Downloads run several minutes on the first fetch; already-cached models switch instantly."/>
+
+        <!-- Search + NPU filter -->
+        <Grid Grid.Row="1" Margin="0,0,0,8">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+            </Grid.ColumnDefinitions>
+            <TextBox Grid.Column="0"
+                     Text="{Binding SearchText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                     Background="{DynamicResource InputBackgroundBrush}"
+                     Foreground="{DynamicResource InputForegroundBrush}"
+                     BorderBrush="{DynamicResource InputBorderBrush}"
+                     Padding="6,4" FontSize="13"/>
+            <CheckBox Grid.Column="1" Content="NPU only"
+                      IsChecked="{Binding NpuOnly, Mode=TwoWay}"
+                      VerticalAlignment="Center" Margin="10,0,0,0"
+                      Foreground="{DynamicResource BodyForegroundBrush}"/>
+        </Grid>
+
+        <!-- Model list -->
+        <Border Grid.Row="2" BorderBrush="{DynamicResource InputBorderBrush}"
+                BorderThickness="1" Background="{DynamicResource ListBoxBackgroundBrush}">
+            <Grid>
+                <ListBox ItemsSource="{Binding FilteredModels}"
+                         SelectedItem="{Binding SelectedModel, Mode=TwoWay}"
+                         Background="Transparent"
+                         BorderThickness="0"
+                         Foreground="{DynamicResource ListItemForegroundBrush}"
+                         ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+                    <ListBox.ItemTemplate>
+                        <DataTemplate>
+                            <DockPanel Margin="0,3">
+                                <TextBlock DockPanel.Dock="Right" Text="{Binding SizeDisplay}"
+                                           Foreground="{DynamicResource SubtleForegroundBrush}"
+                                           FontSize="11" VerticalAlignment="Center" Margin="6,0,0,0"/>
+                                <Border DockPanel.Dock="Right" Padding="5,1" Margin="4,0,0,0"
+                                        CornerRadius="3"
+                                        VerticalAlignment="Center"
+                                        Background="{DynamicResource PillAppliedBackgroundBrush}"
+                                        Visibility="{Binding IsCached, Converter={StaticResource BoolToVis}}">
+                                    <TextBlock Text="✓ cached" FontSize="10"
+                                               Foreground="{DynamicResource PillAppliedForegroundBrush}"/>
+                                </Border>
+                                <Border DockPanel.Dock="Right" Padding="5,1" Margin="4,0,0,0"
+                                        CornerRadius="3"
+                                        VerticalAlignment="Center"
+                                        Background="{DynamicResource NeutralButtonBackgroundBrush}">
+                                    <TextBlock Text="{Binding Device}" FontSize="10"
+                                               Foreground="{DynamicResource NeutralButtonForegroundBrush}"/>
+                                </Border>
+                                <TextBlock Text="{Binding Id}" VerticalAlignment="Center" FontSize="12"/>
+                            </DockPanel>
+                        </DataTemplate>
+                    </ListBox.ItemTemplate>
+                </ListBox>
+
+                <TextBlock Text="Loading catalog…"
+                           HorizontalAlignment="Center" VerticalAlignment="Center"
+                           Foreground="{DynamicResource SubtleForegroundBrush}"
+                           FontStyle="Italic" FontSize="12"
+                           Visibility="{Binding IsLoadingCatalog, Converter={StaticResource BoolToVis}}"/>
+            </Grid>
+        </Border>
+
+        <!-- Error -->
+        <TextBlock Grid.Row="3" Text="{Binding ErrorMessage}"
+                   Foreground="{DynamicResource ErrorForegroundBrush}"
+                   TextWrapping="Wrap" Margin="0,8,0,0" FontSize="11">
+            <TextBlock.Style>
+                <Style TargetType="TextBlock">
+                    <Setter Property="Visibility" Value="Visible"/>
+                    <Style.Triggers>
+                        <DataTrigger Binding="{Binding ErrorMessage}" Value="">
+                            <Setter Property="Visibility" Value="Collapsed"/>
+                        </DataTrigger>
+                    </Style.Triggers>
+                </Style>
+            </TextBlock.Style>
+        </TextBlock>
+
+        <!-- Progress -->
+        <StackPanel Grid.Row="4" Margin="0,8,0,0"
+                    Visibility="{Binding IsDownloading, Converter={StaticResource BoolToVis}}">
+            <ProgressBar IsIndeterminate="True" Height="4"/>
+            <TextBlock Text="{Binding DownloadStatus}"
+                       Foreground="{DynamicResource SubtleForegroundBrush}"
+                       FontSize="11" Margin="0,4,0,0"
+                       TextTrimming="CharacterEllipsis"/>
+        </StackPanel>
+
+        <!-- Buttons -->
+        <DockPanel Grid.Row="5" Margin="0,12,0,0" LastChildFill="False">
+            <Button DockPanel.Dock="Right" Content="Download"
+                    Padding="14,4" FontSize="12"
+                    Margin="6,0,0,0"
+                    Background="{DynamicResource AcceptButtonBackgroundBrush}"
+                    Foreground="{DynamicResource AcceptButtonForegroundBrush}"
+                    Command="{Binding DownloadCommand}"
+                    IsDefault="True">
+                <Button.Style>
+                    <Style TargetType="Button">
+                        <Setter Property="IsEnabled" Value="True"/>
+                        <Style.Triggers>
+                            <DataTrigger Binding="{Binding SelectedModel}" Value="{x:Null}">
+                                <Setter Property="IsEnabled" Value="False"/>
+                            </DataTrigger>
+                            <DataTrigger Binding="{Binding IsDownloading}" Value="True">
+                                <Setter Property="IsEnabled" Value="False"/>
+                            </DataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </Button.Style>
+            </Button>
+            <Button DockPanel.Dock="Right" Content="Cancel"
+                    Padding="14,4" FontSize="12"
+                    Background="{DynamicResource NeutralButtonBackgroundBrush}"
+                    Foreground="{DynamicResource NeutralButtonForegroundBrush}"
+                    Command="{Binding CancelCommand}"
+                    IsCancel="True"/>
+        </DockPanel>
+    </Grid>
+</Window>

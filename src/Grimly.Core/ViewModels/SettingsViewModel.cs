@@ -43,6 +43,25 @@ public partial class SettingsViewModel : ObservableObject
 
     public IReadOnlyList<EditingMode> AvailableModes { get; } = Enum.GetValues<EditingMode>();
 
+    /// <summary>
+    /// Factory for the model browser dialog. The code-behind opens the
+    /// window; on success we splice the downloaded model into the local
+    /// list and select it. Kept as a method so the VM stays view-agnostic.
+    /// </summary>
+    public ModelBrowserViewModel CreateModelBrowser() => new(_foundryManager);
+
+    /// <summary>
+    /// Called by the code-behind when the browser closes with a picked
+    /// model. Idempotent — safe to call with a model already in the list.
+    /// </summary>
+    public void OnModelDownloaded(string modelId)
+    {
+        if (string.IsNullOrWhiteSpace(modelId)) return;
+        if (!AvailableModels.Contains(modelId, StringComparer.OrdinalIgnoreCase))
+            AvailableModels.Insert(0, modelId);
+        ModelName = modelId;
+    }
+
     public event Action<bool>? RequestClose;
 
     public SettingsViewModel(ISettingsService settingsService, IFoundryManager foundryManager)
