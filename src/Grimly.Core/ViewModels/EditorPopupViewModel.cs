@@ -18,6 +18,7 @@ public partial class EditorPopupViewModel : ObservableObject
     private readonly IWordReadabilityService? _wordReadabilityService;
     private readonly IGrammarChecker _codeChecker;
     private readonly ICaseFormatter _caseFormatter;
+    private readonly IApStylePipeline _apStylePipeline;
     private readonly ISettingsService _settingsService;
     private readonly BrandingOptions _branding;
     private CancellationTokenSource? _cts;
@@ -243,6 +244,7 @@ public partial class EditorPopupViewModel : ObservableObject
         IReadabilityService readabilityService,
         IGrammarChecker codeChecker,
         ICaseFormatter caseFormatter,
+        IApStylePipeline apStylePipeline,
         ISettingsService settingsService,
         BrandingOptions branding,
         IWordReadabilityService? wordReadabilityService = null)
@@ -255,6 +257,7 @@ public partial class EditorPopupViewModel : ObservableObject
         _wordReadabilityService = wordReadabilityService;
         _codeChecker = codeChecker;
         _caseFormatter = caseFormatter;
+        _apStylePipeline = apStylePipeline;
         _settingsService = settingsService;
         _branding = branding;
 
@@ -697,6 +700,70 @@ public partial class EditorPopupViewModel : ObservableObject
     /// can't distinguish proper nouns from title-cased words; the review UI
     /// lets the user reject individual changes.
     /// </summary>
+    /// <summary>
+    /// Run the AP Style pipeline on the current working text. Applies the
+    /// deterministic AP code pass (times, dates, %, ampersand, Oxford comma
+    /// removal, courtesy titles) followed by an LLM pass focused on
+    /// attribution verbs and passive-voice attribution. Shows the result as
+    /// a reviewable diff, same UX as Fix Grammar.
+    /// </summary>
+    [RelayCommand]
+    private async Task RunApStyleAsync()
+    {
+        _cts?.Cancel();
+        _cts = new CancellationTokenSource();
+        var ct = _cts.Token;
+
+        IsLoading = true;
+        ErrorMessage = null;
+        ShowRetry = false;
+        IsReviewing = false;
+
+        try
+        {
+            _preRevisionText = WorkingText;
+            var rewritten = await _apStylePipeline.RunAsync(_preRevisionText, ct);
+            if (ct.IsCancellationRequested) return;
+
+            var diffs = _diffService.ComputeDiff(_preRevisionText, rewritten);
+            var segments = _diffService.GroupIntoSegments(diffs);
+            ReviewSegments = new ObservableCollection<ReviewSegment>(segments);
+
+            if (segments.Any(s => s.IsChange))
+            {
+                _undoStack.Push(_preRevisionText);
+                _consecutiveTimeouts = 0;
+                CanUndo = true;
+                IsReviewing = true;
+                HasResult = true;
+                RebuildWorkingText();
+                ReviewSegmentsChanged?.Invoke();
+            }
+            else
+            {
+                ErrorMessage = "No AP-style changes suggested.";
+            }
+        }
+        catch (OperationCanceledException) { }
+        catch (System.Net.Http.HttpRequestException)
+        {
+            ConnectionStatus = ConnectionStatus.Unknown;
+            ConnectionStatusText = "Checking...";
+            ErrorMessage = "Cannot connect to local LLM.";
+            ShowRetry = true;
+            _ = CheckConnectionAsync();
+        }
+        catch (Exception ex)
+        {
+            ErrorMessage = $"AP Style error: {ex.Message}";
+            ShowRetry = true;
+        }
+        finally
+        {
+            IsLoading = false;
+        }
+    }
+
     [RelayCommand]
     private void ApplyCase(string? styleName)
     {

@@ -240,8 +240,20 @@
             <!-- Mode selector -->
             <WrapPanel Grid.Row="2" x:Name="ModePanel" Margin="0,0,0,8"/>
 
-            <!-- (Row 3 reserved — Style Helper used to put a dedicated style-pipeline
-                 button here; Grimly leaves it empty so subsequent rows keep their indices.) -->
+            <!-- AP Style button — deterministic AP rules + LLM pass for
+                 attribution verbs and passive voice. Styled like Illumio
+                 Style in StyleHelper (orange outline) so it reads as
+                 secondary to the mode pills above. -->
+            <Button Grid.Row="3"
+                    Content="AP Style"
+                    Command="{Binding RunApStyleCommand}"
+                    Foreground="{DynamicResource AcceptButtonBackgroundBrush}"
+                    BorderBrush="{DynamicResource AcceptButtonBackgroundBrush}"
+                    BorderThickness="1.5"
+                    Style="{StaticResource OutlineButton}"
+                    FontSize="13" FontWeight="SemiBold"
+                    HorizontalAlignment="Stretch"
+                    Margin="0,0,0,8"/>
 
             <!-- Custom prompt input -->
             <TextBox Grid.Row="4"

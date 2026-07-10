@@ -96,6 +96,8 @@ public sealed class ApplicationHost : IDisposable
         services.AddSingleton<IGrammarChecker, GrammarChecker>();
         services.AddSingleton<ICaseFormatter, CaseFormatter>();
         services.AddSingleton<IProperNounService, ProperNounService>();
+        services.AddSingleton<IApStyleCodePass, ApStyleCodePass>();
+        services.AddSingleton<IApStylePipeline, ApStylePipeline>();
         services.AddHttpClient<IFoundryLocalClient, FoundryLocalClient>();
         _serviceProvider = services.BuildServiceProvider();
 
@@ -541,6 +543,7 @@ public sealed class ApplicationHost : IDisposable
                 
                 _serviceProvider!.GetRequiredService<IGrammarChecker>(),
                 _serviceProvider!.GetRequiredService<ICaseFormatter>(),
+                _serviceProvider!.GetRequiredService<IApStylePipeline>(),
                 _serviceProvider!.GetRequiredService<ISettingsService>(),
                 _branding,
                 _serviceProvider!.GetService<IWordReadabilityService>())
@@ -600,6 +603,7 @@ public sealed class ApplicationHost : IDisposable
                 
                 _serviceProvider!.GetRequiredService<IGrammarChecker>(),
                 _serviceProvider!.GetRequiredService<ICaseFormatter>(),
+                _serviceProvider!.GetRequiredService<IApStylePipeline>(),
                 _serviceProvider!.GetRequiredService<ISettingsService>(),
                 _branding,
                 _serviceProvider!.GetService<IWordReadabilityService>())
