@@ -339,6 +339,60 @@
                         </Style>
                     </TextBlock.Style>
                 </TextBlock>
+
+                <!-- LLM activity glow. A red/blue/purple gradient border that
+                     rotates around the working-text box while an LLM call is
+                     in flight. Purely cosmetic — signals to the user that
+                     the model is running (as opposed to the deterministic
+                     code passes, which complete instantly). Overlays the
+                     TextBox with IsHitTestVisible=False so clicks pass
+                     through. Animation runs continuously; visibility is
+                     bound to IsLoading so the animation is only rendered
+                     while the LLM is working. -->
+                <Border x:Name="LlmGlow"
+                        IsHitTestVisible="False"
+                        BorderThickness="4"
+                        CornerRadius="4"
+                        Margin="-3"
+                        Visibility="{Binding IsLoading, Converter={StaticResource BoolToVis}}">
+                    <Border.BorderBrush>
+                        <LinearGradientBrush StartPoint="0,0" EndPoint="1,1">
+                            <GradientStop Color="#3B82F6" Offset="0.0"/>
+                            <GradientStop Color="#8B5CF6" Offset="0.5"/>
+                            <GradientStop Color="#EF4444" Offset="1.0"/>
+                            <LinearGradientBrush.RelativeTransform>
+                                <RotateTransform x:Name="LlmGlowRotate"
+                                                 CenterX="0.5" CenterY="0.5"
+                                                 Angle="0"/>
+                            </LinearGradientBrush.RelativeTransform>
+                        </LinearGradientBrush>
+                    </Border.BorderBrush>
+                    <Border.Effect>
+                        <DropShadowEffect BlurRadius="18" ShadowDepth="0"
+                                          Color="#8B5CF6" Opacity="0.7"/>
+                    </Border.Effect>
+                    <Border.Triggers>
+                        <EventTrigger RoutedEvent="FrameworkElement.Loaded">
+                            <BeginStoryboard>
+                                <Storyboard RepeatBehavior="Forever">
+                                    <!-- Faster rotation for a livelier feel. -->
+                                    <DoubleAnimation Storyboard.TargetName="LlmGlowRotate"
+                                                     Storyboard.TargetProperty="Angle"
+                                                     From="0" To="360"
+                                                     Duration="0:0:1.5"/>
+                                    <!-- Subtle pulse: opacity 1.0 → 0.55 → 1.0
+                                         with a slower cadence than the rotation
+                                         so the two effects don't beat together. -->
+                                    <DoubleAnimation Storyboard.TargetName="LlmGlow"
+                                                     Storyboard.TargetProperty="Opacity"
+                                                     From="1.0" To="0.55"
+                                                     Duration="0:0:0.9"
+                                                     AutoReverse="True"/>
+                                </Storyboard>
+                            </BeginStoryboard>
+                        </EventTrigger>
+                    </Border.Triggers>
+                </Border>
             </Grid>
 
             <!-- Readability / Match Word row. Connection LED moved to the
@@ -426,13 +480,10 @@
 
             </DockPanel>
 
-            <!-- Loading indicator -->
-            <StackPanel Grid.Row="8" Orientation="Horizontal" Margin="0,0,0,8"
-                        Visibility="{Binding IsLoading, Converter={StaticResource BoolToVis}}">
-                <ProgressBar IsIndeterminate="True" Width="120" Height="4" Margin="0,0,8,0"/>
-                <TextBlock Text="Revising..." Foreground="{DynamicResource SubtleForegroundBrush}" FontSize="11"
-                           VerticalAlignment="Center"/>
-            </StackPanel>
+            <!-- Loading indicator — replaced by the animated LLM glow border
+                 around the working-text box. Row kept in the grid (as an
+                 empty placeholder) so downstream row indices stay stable. -->
+            <StackPanel Grid.Row="8" Visibility="Collapsed"/>
 
             <!-- Review header with Accept All / Reject All -->
             <DockPanel Grid.Row="9" Margin="0,0,0,4"

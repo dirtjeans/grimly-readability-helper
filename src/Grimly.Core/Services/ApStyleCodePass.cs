@@ -37,7 +37,42 @@ public sealed class ApStyleCodePass : IApStyleCodePass
         var current = text;
         foreach (var rule in Rules)
             current = rule.Apply(current);
+        current = SpellOutSingleDigits(current);
         return current;
+    }
+
+    // AP: spell out one through nine, use figures for 10 and above. Excludes
+    // common non-quantity contexts — units, ages, times, money, percentages,
+    // and cases already handled by other rules ($3, 3.5, decimals). Preserves
+    // sentence-start capitalization when the digit begins a sentence. Split
+    // out from the Rules pipeline because it needs the full input text to
+    // detect sentence position (MatchEvaluator alone doesn't expose it).
+    private static readonly Regex SingleDigitRegex = new(
+        @"(?<![\$\#\.\d])\b([1-9])\s+(?!(?:percent|%|a\.m|p\.m|am|pm|year|years|month|months|week|weeks|day|days|hour|hours|minute|minutes|second|seconds|foot|feet|inch|inches|mile|miles|meter|meters|centimeter|centimeters|km|kg|lb|lbs|pound|pounds|ounce|ounces|gram|grams|oz|degree|degrees|dollar|dollars|cent|cents|times|old|to)\b)([a-z][a-z]+)\b",
+        RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+    private static string SpellOutSingleDigits(string text)
+    {
+        return SingleDigitRegex.Replace(text, m =>
+        {
+            var word = m.Groups[1].Value switch
+            {
+                "1" => "one", "2" => "two", "3" => "three", "4" => "four",
+                "5" => "five", "6" => "six", "7" => "seven", "8" => "eight",
+                "9" => "nine", _ => m.Groups[1].Value,
+            };
+            var pos = m.Index;
+            bool atSentenceStart = pos == 0;
+            if (!atSentenceStart)
+            {
+                int i = pos - 1;
+                while (i >= 0 && char.IsWhiteSpace(text[i])) i--;
+                if (i < 0 || text[i] == '.' || text[i] == '!' || text[i] == '?')
+                    atSentenceStart = true;
+            }
+            if (atSentenceStart) word = char.ToUpperInvariant(word[0]) + word[1..];
+            return $"{word} {m.Groups[2].Value}";
+        });
     }
 
     // ─── Rule primitive ─────────────────────────────────────────────
@@ -160,6 +195,133 @@ public sealed class ApStyleCodePass : IApStyleCodePass
         R(@"\bCaptain\s+(?=[A-Z])", "Capt. "),
         R(@"\bLieutenant\s+(?=[A-Z])", "Lt. "),
         R(@"\bSergeant\s+(?=[A-Z])", "Sgt. "),
+
+        // Company-name suffix commas — AP dropped the comma before Inc.,
+        // Corp., Co., Ltd. in 2019. "Apple, Inc." → "Apple Inc." Runs
+        // before the state-abbreviation rule so we don't confuse "Apple,
+        // Inc." with a city-state pair. Requires the preceding token to
+        // be a capitalized name (avoids matching plain "the, Inc." fragments).
+        EvalRCase(
+            @"\b([A-Z][A-Za-z0-9]*(?:\s+[A-Z][A-Za-z0-9\.]*)*),\s+(Inc|Corp|Co|Ltd|LLC)(\.)?",
+            RegexOptions.None,
+            m =>
+            {
+                var suffix = m.Groups[2].Value;
+                // LLC stays as-is; the others get a period.
+                var withDot = suffix == "LLC" ? "LLC" : suffix + ".";
+                return $"{m.Groups[1].Value} {withDot}";
+            }),
+
+        // Decade apostrophes. AP: no apostrophe on the year, apostrophe on
+        // the truncation. "1990's" → "1990s"; "90's" → "'90s". The two-
+        // digit rule requires a word boundary and no leading digit to
+        // avoid mangling four-digit years split across formatting.
+        EvalR(@"\b(\d{4})'s\b", m => $"{m.Groups[1].Value}s"),
+        EvalR(@"(?<!\d)\b(\d{2})'s\b", m => $"'{m.Groups[1].Value}s"),
+
+        // Ordinal-date strip for the non-abbreviatable months. AP: no
+        // "st/nd/rd/th" on any date, and March through July are never
+        // abbreviated. "March 5th" → "March 5". (Abbreviatable months are
+        // handled in the earlier abbreviation rule, which already strips
+        // the ordinal along with the month rewrite.)
+        EvalR(@"\b(March|April|May|June|July)\s+(\d{1,2})(?:st|nd|rd|th)\b",
+            m => $"{m.Groups[1].Value} {m.Groups[2].Value}"),
+
+        // Middle initials — a lone capital letter between two capitalized
+        // words gets a period. "John F Kennedy" → "John F. Kennedy".
+        // Preserves the existing period if already present via the
+        // negative lookahead.
+        EvalRCase(
+            @"\b([A-Z][a-z]+)\s+([A-Z])(?!\.)\s+([A-Z][a-z]+)\b",
+            RegexOptions.None,
+            m => $"{m.Groups[1].Value} {m.Groups[2].Value}. {m.Groups[3].Value}"),
+
+        // Multiple spaces → single. Catches the "two spaces after a
+        // period" artifact from typewriter-era conventions and any other
+        // stray runs. Kept as a plain space collapse (doesn't touch tabs
+        // or newlines) so paragraph structure is preserved.
+        EvalR(@"  +", _ => " "),
+
+        // Directional street abbreviations in numbered addresses. AP:
+        // "100 East Main St." → "100 E. Main St." Only fires when a
+        // house number precedes the direction, matching the same
+        // "numbered address" gate as the Ave./Blvd./St. rule above.
+        EvalRCase(
+            @"\b(\d+)\s+(East|West|North|South)\s+(?=[A-Z])",
+            RegexOptions.None,
+            m =>
+            {
+                var abbr = m.Groups[2].Value switch
+                {
+                    "East" => "E.",
+                    "West" => "W.",
+                    "North" => "N.",
+                    "South" => "S.",
+                    _ => m.Groups[2].Value,
+                };
+                return $"{m.Groups[1].Value} {abbr} ";
+            }),
+
+        // "over" → "more than" for numerical quantities. AP relaxed this in
+        // 2014 (both are acceptable), but "more than" remains the preferred
+        // form when a specific quantity follows. Only fires when the next
+        // token is a digit — physical/spatial "over" ("jumped over the
+        // fence") is untouched. Edge cases like "over 5 miles of trail"
+        // fall through as a preferred rewrite; the review UI is the escape
+        // hatch if the user disagrees.
+        EvalR(@"\bover\s+(\d[\d,]*)\b", m => $"more than {m.Groups[1].Value}"),
+
+        // U.S. states — abbreviate to AP short forms when following a city
+        // name in prose ("Boston, Mass."). Case-sensitive so the leading
+        // city has to be capitalized (avoids false matches on prose that
+        // happens to end with a lowercase word before ", California,"). The
+        // eight AP "never abbreviate" states (Alaska, Hawaii, Idaho, Iowa,
+        // Maine, Ohio, Texas, Utah) are intentionally absent from the list.
+        EvalRCase(
+            @"\b([A-Z][A-Za-z\.]*(?:\s+[A-Z][A-Za-z\.]+){0,2}),\s+(Alabama|Arizona|Arkansas|California|Colorado|Connecticut|Delaware|Florida|Georgia|Illinois|Indiana|Kansas|Kentucky|Louisiana|Maryland|Massachusetts|Michigan|Minnesota|Mississippi|Missouri|Montana|Nebraska|Nevada|New Hampshire|New Jersey|New Mexico|New York|North Carolina|North Dakota|Oklahoma|Oregon|Pennsylvania|Rhode Island|South Carolina|South Dakota|Tennessee|Vermont|Virginia|Washington|West Virginia|Wisconsin|Wyoming)\b(?!\s+[A-Z][a-z])",
+            RegexOptions.None,
+            m =>
+            {
+                var abbr = m.Groups[2].Value switch
+                {
+                    "Alabama" => "Ala.", "Arizona" => "Ariz.", "Arkansas" => "Ark.",
+                    "California" => "Calif.", "Colorado" => "Colo.", "Connecticut" => "Conn.",
+                    "Delaware" => "Del.", "Florida" => "Fla.", "Georgia" => "Ga.",
+                    "Illinois" => "Ill.", "Indiana" => "Ind.", "Kansas" => "Kan.",
+                    "Kentucky" => "Ky.", "Louisiana" => "La.", "Maryland" => "Md.",
+                    "Massachusetts" => "Mass.", "Michigan" => "Mich.", "Minnesota" => "Minn.",
+                    "Mississippi" => "Miss.", "Missouri" => "Mo.", "Montana" => "Mont.",
+                    "Nebraska" => "Neb.", "Nevada" => "Nev.", "New Hampshire" => "N.H.",
+                    "New Jersey" => "N.J.", "New Mexico" => "N.M.", "New York" => "N.Y.",
+                    "North Carolina" => "N.C.", "North Dakota" => "N.D.", "Oklahoma" => "Okla.",
+                    "Oregon" => "Ore.", "Pennsylvania" => "Pa.", "Rhode Island" => "R.I.",
+                    "South Carolina" => "S.C.", "South Dakota" => "S.D.", "Tennessee" => "Tenn.",
+                    "Vermont" => "Vt.", "Virginia" => "Va.", "Washington" => "Wash.",
+                    "West Virginia" => "W.Va.", "Wisconsin" => "Wis.", "Wyoming" => "Wyo.",
+                    _ => m.Groups[2].Value,
+                };
+                return $"{m.Groups[1].Value}, {abbr}";
+            }),
+
+        // Address suffixes — abbreviate Avenue/Boulevard/Street ONLY when
+        // used with a specific numbered address ("1600 Pennsylvania Ave.").
+        // Standalone use ("Pennsylvania Avenue is closed") stays spelled
+        // out. Other street types (Drive, Road, Alley, Court, Terrace,
+        // Way, etc.) are never abbreviated in AP — deliberately absent.
+        EvalRCase(
+            @"\b(\d+\s+[A-Z][A-Za-z\.]*(?:\s+[A-Z][A-Za-z\.]+)*)\s+(Avenue|Boulevard|Street)\b",
+            RegexOptions.None,
+            m =>
+            {
+                var abbr = m.Groups[2].Value switch
+                {
+                    "Avenue" => "Ave.",
+                    "Boulevard" => "Blvd.",
+                    "Street" => "St.",
+                    _ => m.Groups[2].Value,
+                };
+                return $"{m.Groups[1].Value} {abbr}";
+            }),
 
         // No Oxford comma — remove the serial comma before "and"/"or" in
         // lists of 3+ items. Requires the trailing item to be a plain word

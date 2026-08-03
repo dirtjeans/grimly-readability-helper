@@ -72,6 +72,50 @@ public sealed class ApStylePipeline : IApStylePipeline
             temperature: 0.0);
 
         if (string.IsNullOrWhiteSpace(refined)) return afterCodePass;
+
+        // Prompt-echo guard. Small on-device models sometimes echo the
+        // system prompt verbatim instead of returning the rewritten text.
+        // Fall back to the deterministic pass output rather than leaking
+        // prompt instructions into the diff view.
+        if (LooksLikePromptEcho(refined)) return afterCodePass;
+
         return refined.Trim().Trim('"');
+    }
+
+    private static readonly string[] EchoSignatures =
+    {
+        // Direct echoes of prompt scaffolding.
+        "Apply ONLY these changes",
+        "Attribution verbs: prefer 'said'",
+        "Passive-voice attribution",
+        "Editorial framing",
+        "Return ONLY the revised text",
+        "Associated Press Stylebook",
+
+        // Meta-commentary preambles small models add instead of just
+        // returning the rewritten text.
+        "You're about to",
+        "Here's the revised",
+        "Here is the revised",
+        "Here's the rewritten",
+        "I've made the following",
+        "I have made the following",
+        "The goal is to",
+        "Remember,",
+        "Sure, here",
+        "Let me revise",
+        "In this revision",
+        "Note that",
+        "As requested",
+    };
+
+    private static bool LooksLikePromptEcho(string raw)
+    {
+        foreach (var sig in EchoSignatures)
+        {
+            if (raw.Contains(sig, StringComparison.OrdinalIgnoreCase))
+                return true;
+        }
+        return false;
     }
 }
