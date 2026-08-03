@@ -1,6 +1,58 @@
 # Note for a future Claude — Mac side of Grimly
 
-You're picking up mid-project. The user is Kenneth Spencer Brown; the project is **Grimly**, a local-LLM writing assistant (Windows + macOS) that runs on Microsoft Foundry Local. Windows is the primary platform and is fully caught up; **the Mac is one version behind** and needs a build + some source ports.
+You're picking up mid-project. The user is Kenneth Spencer Brown; the project is **Grimly**, a local-LLM writing assistant (Windows + macOS) that runs on Microsoft Foundry Local. Windows is the primary platform and is fully caught up; **the Mac is behind Windows by two versions (v1.1.0 and v1.2.0)** and needs a build + source ports for the features listed below.
+
+## Catch-up as of 2026-08-03 — Windows is at v1.2.0
+
+Ported source targets (public repo): `source/grimly-readability-helper/src/Grimly.Core/`. Where a Windows path is cited below, look for the equivalent Swift file under `mac/Grimly/{Services,ViewModels,Views}`.
+
+### v1.1.0 (2026-07-10)
+
+1. **Sentence case removed.** Case dropdown now has AP title case + Chicago title case only. Mac may still have Sentence case in `CaseFormatter.swift`; strip the option and its menu entry. See §"(Note on sentence case)" below for the reasoning.
+2. **Model browser: two-tier picker in Settings** with NPU/GPU filter checkboxes. On Mac, adapt to the Mac equivalent settings pane if one exists. The Mac hardware story is different (no NPU on most Macs), so a simpler single-list picker is probably fine — talk to the user before investing in the two-tier UI.
+3. **LLM output language anchor.** The system prompt now begins with `"Reply in the same language as the input text. If the input is in English, respond in English."` — added because Qwen models drifted to Chinese. Copy this prepend into whatever Mac uses to assemble system prompts (likely `FoundryLocalClient.swift`).
+4. **About tray menu item.** Already covered in §"About menu item" below — do this.
+
+### v1.2.0 (2026-08-03) — this session
+
+**New AP Style pipeline** — public Grimly gained a dedicated AP Style button (Row 3 of the popup grid, orange outline) that runs a deterministic code pass followed by an LLM pass for judgment calls. Ports needed:
+
+- **`ApStyleCodePass.cs`** → create `mac/Grimly/Services/APStyleCodePass.swift`. Idempotent regex-based rewriter. Rules currently covered:
+  - `10 percent` → `10%`, `&` → `and` (skipping proper-noun contexts)
+  - Time format: `10:00 AM` → `10 a.m.` (drops `:00`, lowercase, periods)
+  - Month abbreviations with dates: `January 5` → `Jan. 5` (Jan/Feb/Aug/Sept/Oct/Nov/Dec only; March–July stay spelled out but strip ordinals)
+  - Courtesy titles: `Mr Smith` → `Mr. Smith` (Mr./Mrs./Ms./Dr.)
+  - Political/military titles before names: `Senator Warren` → `Sen. Warren` (Sen./Rep./Gov./Lt. Gov./Gen./Col./Maj./Capt./Lt./Sgt.)
+  - `over N` → `more than N` for numeric quantities
+  - Single digits `1..9` spelled out (`3 reasons` → `three reasons`) with a long negative-lookahead over unit/age/time/money exceptions
+  - State abbreviations after city names: `Boston, Massachusetts` → `Boston, Mass.` (list of 42 states; skip Alaska/Hawaii/Idaho/Iowa/Maine/Ohio/Texas/Utah — never abbreviated)
+  - Address suffixes with numbered addresses: `1600 Pennsylvania Avenue` → `1600 Pennsylvania Ave.` (Avenue/Boulevard/Street only)
+  - Directional address abbrevs: `100 East Main St.` → `100 E. Main St.` (E./W./N./S. only when preceded by a house number)
+  - Company suffix commas dropped: `Apple, Inc.` → `Apple Inc.` (Inc./Corp./Co./Ltd./LLC — 2019 AP change)
+  - Decade apostrophes: `1990's` → `1990s`, `90's` → `'90s`
+  - Middle-initial periods: `John F Kennedy` → `John F. Kennedy`
+  - Multiple-space collapse: `  +` → ` `
+  - Ordinal-date strip for March–July: `March 5th` → `March 5`
+  - Oxford comma REMOVAL: `red, white, and blue` → `red, white and blue` (public Grimly is AP-strict; StyleHelper reverses this)
+  - Em-dash spacing removed: `word — word` → `word—word`; ASCII `--` → `—`
+
+- **`ApStylePipeline.cs`** → create `mac/Grimly/Services/APStylePipeline.swift`. Two steps: run the code pass, then send the result through the LLM with a narrowly-scoped prompt covering only three categories:
+  1. Attribution verbs: prefer `said` over `claimed`/`stated`/`noted`/`commented`/`remarked`/`expressed`/`declared`
+  2. Passive-voice attribution: `was said by X` → `X said`
+  3. Editorial framing: strip alarmist/promotional adjectives (`groundbreaking`, `shocking`, `unprecedented`) unless in a quote
+
+- **Prompt-echo guard.** Both `ApStylePipeline.cs` and (in the private Illumio pipeline) `StyleGuidePipeline.cs` post-process LLM output to discard responses that contain prompt sentinel phrases or common meta-commentary preambles (`"You're about to"`, `"Here's the revised"`, `"Remember,"`, etc.). When the guard trips, fall back to the code-pass output. Mac needs the same guard — small on-device models parrot prompts too. The signature list is in `ApStylePipeline.cs` at the bottom of the class.
+
+- **AP Style button in the popup.** In WPF this is `EditorPopupWindow.xaml` Row 3 with orange outline styling and `Command="{Binding RunApStyleCommand}"`. On Mac, the equivalent goes into `EditorPopupView.swift` alongside the mode pills.
+
+- **Animated LLM glow border** (replaces the old "Revising…" progress bar). Overlays the working-text box with a red/blue/purple linear-gradient border while `isLoading` is true. Windows XAML uses `LinearGradientBrush` + a `RotateTransform` on `RelativeTransform` + a `DoubleAnimation` (0→360°, 1.5s) plus an opacity pulse (1.0↔0.55, 0.9s AutoReverse), wrapped with a `DropShadowEffect` for glow. SwiftUI equivalent: an `AngularGradient` (or `LinearGradient` with `.rotationEffect` animated) inside a `.stroke` on a `RoundedRectangle` overlay, plus `.opacity` animated on a `.repeatForever().autoreverses()` timeline. Only visible when `isLoading == true`.
+  - Colors: `#3B82F6` (blue) → `#8B5CF6` (purple) → `#EF4444` (red)
+  - Border thickness: 4pt, corner radius: 4pt, margin: -3pt so it sits just outside the text box
+  - Remove the old "Revising…" progress bar wherever the Mac has it
+
+### Version + release tag
+
+The next release is **v1.2.0**. Update the About-menu version string and the release-upload command below (`v1.0.0` → `v1.2.0`).
 
 ## What Grimly does (one paragraph)
 
@@ -50,7 +102,7 @@ Windows added an "About" item to the tray-icon context menu that shows a `Messag
 
 Simplest approach: add a `Button("About Grimly") { showAbout() }` to `MenuBarView.swift`, where `showAbout()` calls `NSApplication.shared.orderFrontStandardAboutPanel(nil)` with a custom credits string. The version comes from `Bundle.main.infoDictionary?["CFBundleShortVersionString"]` (set in Info.plist).
 
-Version to display: **1.0.0**. Build date: read the app bundle's modification date.
+Version to display: **1.2.0**. Build date: read the app bundle's modification date.
 
 ### (Note on sentence case)
 
@@ -76,9 +128,9 @@ xcodebuild \
 cd build/Build/Products/Release
 ditto -c -k --keepParent Grimly.app ../../../../Grimly.app.zip
 
-# Attach to the v1.0.0 release
+# Attach to the v1.2.0 release (current)
 cd ../../../..
-gh release upload v1.0.0 Grimly.app.zip \
+gh release upload v1.2.0 Grimly.app.zip \
   --repo dirtjeans/grimly-readability-helper --clobber
 ```
 
@@ -87,8 +139,8 @@ gh release upload v1.0.0 Grimly.app.zip \
 ## Repo status snapshot
 
 - Public repo: <https://github.com/dirtjeans/grimly-readability-helper>
-- Windows binaries are attached to release v1.0.0 (`GrimlyARM64.exe`, `GrimlyX64.exe`)
-- `Grimly.app.zip` slot is empty — that's what you're producing
+- Windows binaries are attached to release v1.2.0 (`Grimly-windows-x64.exe`, `Grimly-windows-arm64.exe`)
+- `Grimly.app.zip` slot on v1.2.0 is empty — that's what you're producing
 - `main` branch is where all changes go; no PR flow needed
 
 ## Style / preferences
