@@ -111,6 +111,19 @@ struct SettingsView: View {
                 Slider(value: $viewModel.popupOpacity, in: 0.5...1, step: 0.05)
             }
 
+            // About — small footer with app name, version, and build date.
+            // Same info as the menu-bar "About Grimly" panel, kept here so
+            // users can confirm what version they're on without leaving the
+            // pane they're already in when they went looking for it.
+            Divider()
+                .padding(.top, 8)
+            HStack(spacing: 4) {
+                Text(Self.aboutLine)
+                    .font(.system(size: 11))
+                    .foregroundColor(Color(white: 0.53))
+                Spacer()
+            }
+
             // Buttons
             HStack {
                 Spacer()
@@ -130,5 +143,32 @@ struct SettingsView: View {
         }
         .padding(20)
         .frame(width: 460)
+    }
+
+    /// "Grimly 1.2.0 · built Aug 5, 2026" — sourced from the bundle so a
+    /// rebuild refreshes it automatically. Static so the View doesn't re-
+    /// read the bundle on every SwiftUI redraw.
+    private static let aboutLine: String = {
+        let name = (Bundle.main.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String)
+            ?? (Bundle.main.object(forInfoDictionaryKey: "CFBundleName") as? String)
+            ?? "Grimly"
+        let version = (Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String) ?? ""
+        let build = buildDate()
+        return "\(name) \(version) · built \(build)"
+    }()
+
+    /// App bundle executable's modification date — a stable stand-in for
+    /// "build date" without needing a separate INFOPLIST_KEY that would
+    /// have to be bumped on every release.
+    private static func buildDate() -> String {
+        guard let url = Bundle.main.executableURL,
+              let attrs = try? FileManager.default.attributesOfItem(atPath: url.path),
+              let date = attrs[.modificationDate] as? Date else {
+            return "unknown"
+        }
+        let formatter = DateFormatter()
+        formatter.dateStyle = .medium
+        formatter.timeStyle = .none
+        return formatter.string(from: date)
     }
 }

@@ -45,6 +45,25 @@ struct EditorPopupView: View {
             }
             .padding(.bottom, 8)
 
+            // AP Style — runs the deterministic code pass + narrow LLM pass.
+            // Orange outline signals it's secondary to the mode pills above,
+            // but not tertiary either — it's a full-width action.
+            Button(action: { viewModel.runApStyle() }) {
+                Text("AP Style")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundColor(Color(red: 0.90, green: 0.50, blue: 0.20))
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 6)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 6)
+                            .stroke(Color(red: 0.90, green: 0.50, blue: 0.20), lineWidth: 1.5)
+                    )
+            }
+            .buttonStyle(.plain)
+            .padding(.bottom, 8)
+            .disabled(viewModel.isLoading || viewModel.workingText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            .help("Rewrite this text in AP Stylebook style")
+
             // Custom prompt input
             if viewModel.isCustomMode {
                 TextField("Enter your custom instruction", text: $viewModel.customPrompt)
@@ -78,7 +97,10 @@ struct EditorPopupView: View {
             }
             .padding(.bottom, 4)
 
-            // Working text (hidden during review)
+            // Working text (hidden during review). While the LLM is running
+            // an animated red→purple→blue glow border pulses around the
+            // editor — a livelier signal than the old "Revising..." bar and
+            // one that stays visually anchored to what's being processed.
             if !viewModel.isReviewing {
                 TextEditor(text: $viewModel.workingText)
                     .font(.system(size: 13))
@@ -86,7 +108,17 @@ struct EditorPopupView: View {
                     .scrollContentBackground(.hidden)
                     .background(Color.white.opacity(0.06))
                     .cornerRadius(6)
-                    .frame(minHeight: 60, maxHeight: 180)
+                    // Grow with the popup window — the resizable window's
+                    // extra vertical space flows down into whichever of the
+                    // TextEditor / DiffReview is currently visible.
+                    .frame(minHeight: 60, maxHeight: .infinity)
+                    .overlay(
+                        Group {
+                            if viewModel.isLoading {
+                                LLMGlowBorder()
+                            }
+                        }
+                    )
                     .padding(.bottom, 8)
             }
 
@@ -132,27 +164,13 @@ struct EditorPopupView: View {
                 }
                 .menuStyle(.borderlessButton)
                 .fixedSize()
-                .help("Reformat capitalization (AP, Chicago, or sentence case)")
+                .help("Reformat capitalization (AP or Chicago title case)")
             }
             .padding(.bottom, 6)
 
-            // Loading indicator
-            if viewModel.isLoading {
-                HStack(spacing: 10) {
-                    ProgressView()
-                        .scaleEffect(0.9)
-                        .colorInvert()
-                        .brightness(0.4)
-                    Text("Revising...")
-                        .font(.system(size: 13, weight: .medium))
-                        .foregroundColor(Color(white: 0.85))
-                }
-                .padding(.vertical, 10)
-                .padding(.horizontal, 14)
-                .background(Color.white.opacity(0.08))
-                .cornerRadius(8)
-                .padding(.bottom, 8)
-            }
+            // (Loading indicator moved to the animated glow border overlaid
+            // on the working-text TextEditor above — a livelier visual than
+            // the old "Revising..." bar.)
 
             // Review header
             if viewModel.isReviewing {
@@ -192,7 +210,9 @@ struct EditorPopupView: View {
                         viewModel.toggleChange(segId)
                     }
                 )
-                .frame(minHeight: 80, maxHeight: 250)
+                // Same expandable-height rule as the TextEditor above so
+                // the diff area also grows when the window is resized.
+                .frame(minHeight: 80, maxHeight: .infinity)
                 .cornerRadius(6)
                 .padding(.bottom, 8)
             }
@@ -208,11 +228,18 @@ struct EditorPopupView: View {
                 .padding(.bottom, 8)
             }
 
-            // Error message
+            // Error message. When the app is actively reconnecting to
+            // Foundry (either the monitor's background loop or a mid-request
+            // recovery), use a muted amber tone instead of red — "the app
+            // is handling this" reads better than "something is broken."
             if let error = viewModel.errorMessage {
                 Text(error)
                     .font(.system(size: 12))
-                    .foregroundColor(Color(red: 1, green: 0.4, blue: 0.4))
+                    .foregroundColor(
+                        viewModel.isReconnecting
+                            ? Color(red: 0.9, green: 0.7, blue: 0.2)
+                            : Color(red: 1, green: 0.4, blue: 0.4)
+                    )
                     .padding(.bottom, 8)
             }
 
@@ -267,7 +294,10 @@ struct EditorPopupView: View {
                         .strokeBorder(Color.white.opacity(0.15), lineWidth: 1)
                 )
         )
-        .frame(width: 620)
+        // Fixed intrinsic width, flexible width once the window is dragged
+        // wider. Height fills whatever the window offers.
+        .frame(minWidth: 480, idealWidth: 620, maxWidth: .infinity,
+               minHeight: 400, maxHeight: .infinity)
     }
 
     private func readabilityColor(_ score: Double) -> Color {
@@ -353,6 +383,46 @@ struct FlowLayout: Layout {
         }
 
         return (positions, CGSize(width: maxWidth, height: totalHeight))
+    }
+}
+
+// MARK: - LLM activity glow
+
+/// Rotating red→purple→blue gradient border overlay. Signals that an LLM
+/// call is in flight — a livelier visual than the old "Revising…" progress
+/// bar and it stays visually anchored to the text being processed.
+///
+/// Driven by `TimelineView(.animation)` rather than a `withAnimation` +
+/// `.onAppear` + `.repeatForever` chain. That chain is unreliable on macOS
+/// when the view lands inside a `Group { if condition { … } }` overlay:
+/// `.onAppear` doesn't consistently fire when the overlay flips in via the
+/// conditional. `TimelineView` sidesteps the whole lifecycle question by
+/// updating the view every frame from wall-clock time.
+struct LLMGlowBorder: View {
+    var body: some View {
+        TimelineView(.animation) { context in
+            let t = context.date.timeIntervalSinceReferenceDate
+            let angle = t.truncatingRemainder(dividingBy: 1.5) / 1.5 * 360
+            let opacity = 0.55 + 0.45 * (0.5 + 0.5 * sin(t / 0.9 * .pi))
+            RoundedRectangle(cornerRadius: 6)
+                .stroke(
+                    AngularGradient(
+                        gradient: Gradient(colors: [
+                            Color(red: 0.23, green: 0.51, blue: 0.96), // #3B82F6 blue
+                            Color(red: 0.54, green: 0.36, blue: 0.96), // #8B5CF6 purple
+                            Color(red: 0.94, green: 0.27, blue: 0.27), // #EF4444 red
+                            Color(red: 0.23, green: 0.51, blue: 0.96),
+                        ]),
+                        center: .center,
+                        angle: .degrees(angle)
+                    ),
+                    lineWidth: 4
+                )
+                .padding(-3)
+                .opacity(opacity)
+                .shadow(color: Color(red: 0.54, green: 0.36, blue: 0.96).opacity(0.7), radius: 12)
+                .allowsHitTesting(false)
+        }
     }
 }
 

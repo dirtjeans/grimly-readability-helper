@@ -36,12 +36,14 @@ class EditorPopupViewModel: ObservableObject {
     private let foundryManager: FoundryManager
     private let clipboardService: ClipboardService
     private let diffService: TextDiffService
+    private let connectionMonitor: ConnectionMonitor
     private let properNouns = ProperNounService()
     private let spellChecker = SpellCheckerService()
     private lazy var codeChecker = GrammarChecker(spellChecker: spellChecker, properNouns: properNouns)
     private let readabilityService = ReadabilityService()
+    private let apStyleCodePass = APStyleCodePass()
+    private lazy var apStylePipeline = APStylePipeline(codePass: apStyleCodePass, client: foundryClient)
     private var currentTask: Task<Void, Never>?
-    private var backgroundReconnectTask: Task<Void, Never>?
     private var undoStack: [String] = []
     private var preRevisionText: String = ""
     private var cancellables = Set<AnyCancellable>()
@@ -57,6 +59,11 @@ class EditorPopupViewModel: ObservableObject {
     @Published var isReviewing: Bool = false
     @Published var appliedModes: Set<EditingMode> = []
     @Published var connectionStatus: ConnectionStatus = .checking
+    /// True while the app-level ConnectionMonitor is actively retrying.
+    /// The View reads this to show a subtler "Reconnecting…" banner
+    /// instead of a red error when the LLM is momentarily unavailable —
+    /// the retry will usually recover before the user notices.
+    @Published var isReconnecting: Bool = false
     @Published var readabilityScore: Double = 0
     @Published var readabilityLabel: String = ""
     @Published var wordCount: Int = 0
@@ -79,11 +86,46 @@ class EditorPopupViewModel: ObservableObject {
 
     var isCustomMode: Bool { selectedMode == .customPrompt }
 
-    init(foundryClient: FoundryLocalClient, foundryManager: FoundryManager, clipboardService: ClipboardService, diffService: TextDiffService) {
+    init(
+        foundryClient: FoundryLocalClient,
+        foundryManager: FoundryManager,
+        clipboardService: ClipboardService,
+        diffService: TextDiffService,
+        connectionMonitor: ConnectionMonitor
+    ) {
         self.foundryClient = foundryClient
         self.foundryManager = foundryManager
         self.clipboardService = clipboardService
         self.diffService = diffService
+        self.connectionMonitor = connectionMonitor
+
+        // Seed from the monitor's current state so the popup renders with
+        // the right status the moment it opens (no "checking" flash while
+        // Combine settles).
+        self.connectionStatus = connectionMonitor.status
+        self.isReconnecting = connectionMonitor.isReconnecting
+
+        // Mirror the app-level monitor's state into VM-published fields so
+        // the SwiftUI view can observe them without touching the monitor
+        // directly. All reconnect logic lives in ConnectionMonitor — the
+        // VM used to run its own reconnect loop, but that only worked
+        // while the popup was open. The monitor keeps recovering even when
+        // the user has closed the window.
+        connectionMonitor.$status
+            .receive(on: RunLoop.main)
+            .sink { [weak self] s in
+                self?.connectionStatus = s
+                // Clear the red error banner once we're back on the air.
+                if s == .connected, let self, self.errorMessage?.starts(with: "Cannot connect") == true {
+                    self.errorMessage = nil
+                }
+            }
+            .store(in: &cancellables)
+
+        connectionMonitor.$isReconnecting
+            .receive(on: RunLoop.main)
+            .sink { [weak self] r in self?.isReconnecting = r }
+            .store(in: &cancellables)
 
         // Update readability score whenever working text changes
         $workingText
@@ -100,68 +142,6 @@ class EditorPopupViewModel: ObservableObject {
             .debounce(for: .milliseconds(400), scheduler: RunLoop.main)
             .sink { [weak self] text in self?.runLiveCheck(on: text) }
             .store(in: &cancellables)
-
-        // Silent background reconnect. Whenever the connection status flips
-        // to a probably-transient failure (Foundry Local restarted onto a
-        // new port, model briefly unloaded), spin up a loop that retries in
-        // the background so the user doesn't have to click Retry manually.
-        // .foundryNotInstalled is fatal and skipped.
-        $connectionStatus
-            .removeDuplicates()
-            .sink { [weak self] status in
-                guard let self else { return }
-                if status == .connected {
-                    self.backgroundReconnectTask?.cancel()
-                    self.backgroundReconnectTask = nil
-                } else if status == .modelNotLoaded || status == .foundryNotRunning {
-                    self.startBackgroundReconnect()
-                }
-            }
-            .store(in: &cancellables)
-    }
-
-    /// Background reconnect loop. Alternates cheap `checkConnection` probes
-    /// (in case Foundry's port stayed the same) with heavier `ensureRunning`
-    /// calls that can restart the service and re-parse the endpoint. Silent
-    /// throughout — no toast, no status flicker; on success it quietly
-    /// flips ConnectionStatus back to `.connected` and clears any banner.
-    private func startBackgroundReconnect() {
-        // Loop already running — don't stack another one.
-        if let task = backgroundReconnectTask, !task.isCancelled { return }
-
-        backgroundReconnectTask = Task { [weak self] in
-            var attempt = 0
-            while true {
-                guard let self else { return }
-                if Task.isCancelled { return }
-
-                // 3s → 5s → 7s → …, capped at 15s.
-                let delayNs = UInt64(min(3_000 + attempt * 2_000, 15_000)) * 1_000_000
-                do { try await Task.sleep(nanoseconds: delayNs) } catch { return }
-                if Task.isCancelled { return }
-
-                var recovered = false
-                let cheapStatus = await self.foundryManager.checkConnection()
-                if cheapStatus == .connected {
-                    recovered = true
-                } else if attempt >= 2 && attempt % 3 == 0 {
-                    // Every ~10–30s in, pay for a full ensureRunning to catch
-                    // the "Foundry moved to a new port" case.
-                    let result = await self.foundryManager.ensureRunning()
-                    recovered = result.success
-                }
-
-                if recovered {
-                    if Task.isCancelled { return }
-                    self.connectionStatus = .connected
-                    if self.errorMessage == "Cannot connect to local LLM." {
-                        self.errorMessage = nil
-                    }
-                    return
-                }
-                attempt += 1
-            }
-        }
     }
 
     private func runLiveCheck(on text: String) {
@@ -174,7 +154,7 @@ class EditorPopupViewModel: ObservableObject {
 
     /// Re-case the working text and show the result as a reviewable diff.
     /// Deterministic — no LLM round-trip. Used by the "Case" dropdown for
-    /// AP title case, Chicago title case, and sentence case.
+    /// AP title case and Chicago title case.
     func applyCase(_ style: CaseStyle) {
         let rewritten = CaseFormatter.apply(workingText, style: style)
         guard rewritten != workingText else { return }
@@ -192,6 +172,44 @@ class EditorPopupViewModel: ObservableObject {
             rebuildWorkingText()
             onReviewSegmentsChanged?()
         }
+    }
+
+    /// AP Style — run the two-pass pipeline (deterministic code pass +
+    /// narrow LLM pass) on the working text and show the result as a
+    /// reviewable diff. The code pass alone is enough for most changes;
+    /// the LLM pass adds attribution-verb + passive-voice + editorial-
+    /// framing rewrites. Prompt-echo guard in the pipeline protects the
+    /// diff from small-model prompt leaks.
+    func runApStyle() {
+        currentTask?.cancel()
+        let task = Task {
+            isLoading = true
+            errorMessage = nil
+            isReviewing = false
+
+            preRevisionText = workingText
+
+            let result = await apStylePipeline.run(preRevisionText)
+            if Task.isCancelled { isLoading = false; return }
+
+            let diffs = diffService.computeDiff(original: preRevisionText, corrected: result)
+            let segments = diffService.groupIntoSegments(diffs)
+            reviewSegments = segments
+
+            let hasChanges = segments.contains { $0.isChange }
+            if hasChanges {
+                undoStack.append(preRevisionText)
+                canUndo = true
+                isReviewing = true
+                hasResult = true
+                rebuildWorkingText()
+                onReviewSegmentsChanged?()
+            } else {
+                errorMessage = "No AP Style changes suggested."
+            }
+            isLoading = false
+        }
+        currentTask = task
     }
 
     /// Quick Fix — apply every deterministic fix the live checker found, as
@@ -217,10 +235,11 @@ class EditorPopupViewModel: ObservableObject {
         }
     }
 
+    /// Trigger an immediate connection check on the shared monitor. Used
+    /// for the user tapping the status LED and for post-error nudges.
     func refreshConnectionStatus() {
         Task {
-            connectionStatus = .checking
-            connectionStatus = await foundryManager.checkConnection()
+            await connectionMonitor.refresh()
         }
     }
 
@@ -295,7 +314,16 @@ class EditorPopupViewModel: ObservableObject {
             } catch is CancellationError {
                 // Cancelled, no action needed
             } catch is URLError {
-                errorMessage = "Cannot connect to Foundry Local. Is it running?"
+                // Client already retried once with a refreshed endpoint;
+                // both attempts failed. Poke the monitor so its reconnect
+                // ladder starts (or restarts) immediately, and use a
+                // gentler banner if a reconnect is already in flight —
+                // no need to shout when the app is already recovering.
+                if isReconnecting {
+                    errorMessage = "Reconnecting to local LLM — try again shortly."
+                } else {
+                    errorMessage = "Cannot connect to Foundry Local. Is it running?"
+                }
                 refreshConnectionStatus()
             } catch {
                 errorMessage = "Error: \(error.localizedDescription)"
@@ -375,7 +403,6 @@ class EditorPopupViewModel: ObservableObject {
 
     func dismiss() {
         currentTask?.cancel()
-        backgroundReconnectTask?.cancel()
         onRequestClose?()
     }
 

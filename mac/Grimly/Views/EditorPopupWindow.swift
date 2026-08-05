@@ -14,7 +14,7 @@ class EditorPopupWindow: NSPanel {
 
         super.init(
             contentRect: contentRect,
-            styleMask: [.nonactivatingPanel, .titled, .closable, .fullSizeContentView],
+            styleMask: [.nonactivatingPanel, .titled, .closable, .fullSizeContentView, .resizable],
             backing: .buffered,
             defer: false
         )
@@ -28,6 +28,11 @@ class EditorPopupWindow: NSPanel {
         self.backgroundColor = .clear
         self.hasShadow = true
         self.alphaValue = targetOpacity
+        // Enforce sensible minimums so a user can't drag the popup down to
+        // a sliver. The default max is unbounded — grow it as tall as you
+        // like; the working-text editor and diff-review area absorb the
+        // extra vertical space.
+        self.minSize = NSSize(width: 480, height: 400)
 
         // Hide the traffic light buttons — they don't work on a nonactivating panel
         // and would confuse users. We use our own close button instead.

@@ -6,7 +6,15 @@ import UserNotifications
 class AppDelegate: NSObject, NSApplicationDelegate {
     private let settingsService = SettingsService()
     private lazy var foundryManager = FoundryManager(settingsService: settingsService)
-    private lazy var foundryClient = FoundryLocalClient(settingsService: settingsService)
+    /// `FoundryLocalClient` gets the manager so it can auto-retry a request
+    /// with a refreshed endpoint if Foundry silently moved to a new port.
+    private lazy var foundryClient = FoundryLocalClient(settingsService: settingsService, foundryManager: foundryManager)
+    /// App-level connection monitor. Owns reconnect logic that previously
+    /// lived in the popup VM — which meant reconnects stopped whenever the
+    /// popup was closed. Now the monitor keeps polling for the lifetime of
+    /// the menu-bar app, so a dropped Foundry connection recovers on its
+    /// own even with no popup open.
+    @MainActor private lazy var connectionMonitor = ConnectionMonitor(foundryManager: foundryManager)
     private let clipboardService = ClipboardService()
     private let diffService = TextDiffService()
     private let hotKeyService = HotKeyService()
@@ -39,6 +47,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         setupSelectionWatcher()
         registerService()
         initializeFoundry()
+        // Start the app-level monitor after initial init so its first
+        // successful poll cleanly transitions from `.checking` → `.connected`.
+        Task { @MainActor in connectionMonitor.start() }
     }
 
     /// Returns true if another instance of this app is already running
@@ -127,7 +138,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 foundryClient: foundryClient,
                 foundryManager: foundryManager,
                 clipboardService: clipboardService,
-                diffService: diffService
+                diffService: diffService,
+                connectionMonitor: connectionMonitor
             )
             vm.selectedMode = settings.defaultMode
             vm.previousApp = previousApp
@@ -350,7 +362,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             foundryClient: foundryClient,
             foundryManager: foundryManager,
             clipboardService: clipboardService,
-            diffService: diffService
+            diffService: diffService,
+            connectionMonitor: connectionMonitor
         )
         vm.selectedMode = settings.defaultMode
         vm.previousApp = previousApp
@@ -382,7 +395,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 foundryClient: foundryClient,
                 foundryManager: foundryManager,
                 clipboardService: clipboardService,
-                diffService: diffService
+                diffService: diffService,
+                connectionMonitor: connectionMonitor
             )
             vm.selectedMode = settings.defaultMode
             vm.previousApp = previousApp

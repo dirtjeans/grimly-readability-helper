@@ -35,6 +35,15 @@
 		A10028 /* FloatingIconWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10028; };
 		A10029 /* FloatingIconView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10029; };
 		A10030 /* ReadabilityService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10030; };
+		A10031 /* Violation.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10031; };
+		A10032 /* SpellCheckerService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10032; };
+		A10033 /* GrammarChecker.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10033; };
+		A10034 /* CaseFormatter.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10034; };
+		A10035 /* ProperNounService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10035; };
+		A10036 /* proper_nouns.txt in Resources */ = {isa = PBXBuildFile; fileRef = B10036; };
+		A10037 /* APStyleCodePass.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10037; };
+		A10038 /* APStylePipeline.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10038; };
+		A10039 /* ConnectionMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10039; };
 		A20001 /* EditingMode.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10004; };
 		A20002 /* ChatCompletionModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10006; };
 		A20003 /* SettingsService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10007; };
@@ -104,6 +113,15 @@
 		B10028 /* FloatingIconWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FloatingIconWindow.swift; sourceTree = "<group>"; };
 		B10029 /* FloatingIconView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FloatingIconView.swift; sourceTree = "<group>"; };
 		B10030 /* ReadabilityService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReadabilityService.swift; sourceTree = "<group>"; };
+		B10031 /* Violation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Violation.swift; sourceTree = "<group>"; };
+		B10032 /* SpellCheckerService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpellCheckerService.swift; sourceTree = "<group>"; };
+		B10033 /* GrammarChecker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GrammarChecker.swift; sourceTree = "<group>"; };
+		B10034 /* CaseFormatter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CaseFormatter.swift; sourceTree = "<group>"; };
+		B10035 /* ProperNounService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProperNounService.swift; sourceTree = "<group>"; };
+		B10036 /* proper_nouns.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = proper_nouns.txt; sourceTree = "<group>"; };
+		B10037 /* APStyleCodePass.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = APStyleCodePass.swift; sourceTree = "<group>"; };
+		B10038 /* APStylePipeline.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = APStylePipeline.swift; sourceTree = "<group>"; };
+		B10039 /* ConnectionMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectionMonitor.swift; sourceTree = "<group>"; };
 		B20001 /* StyleHelperApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StyleHelperApp.swift; sourceTree = "<group>"; };
 		B20002 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
 		B20003 /* AppSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppSettings.swift; sourceTree = "<group>"; };
@@ -183,6 +201,7 @@
 				B10004 /* EditingMode.swift */,
 				B10005 /* TextDiff.swift */,
 				B10006 /* ChatCompletionModels.swift */,
+				B10031 /* Violation.swift */,
 			);
 			path = Models;
 			sourceTree = "<group>";
@@ -199,6 +218,13 @@
 				B10025 /* InstallerService.swift */,
 				B10027 /* SelectionWatcherService.swift */,
 				B10030 /* ReadabilityService.swift */,
+				B10032 /* SpellCheckerService.swift */,
+				B10033 /* GrammarChecker.swift */,
+				B10034 /* CaseFormatter.swift */,
+				B10035 /* ProperNounService.swift */,
+				B10037 /* APStyleCodePass.swift */,
+				B10038 /* APStylePipeline.swift */,
+				B10039 /* ConnectionMonitor.swift */,
 			);
 			path = Services;
 			sourceTree = "<group>";
@@ -250,6 +276,7 @@
 			children = (
 				B10022 /* Assets.xcassets */,
 				B10024 /* Grimly.entitlements */,
+				B10036 /* proper_nouns.txt */,
 			);
 			path = Resources;
 			sourceTree = "<group>";
@@ -407,6 +434,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				A10022 /* Assets.xcassets in Resources */,
+				A10036 /* proper_nouns.txt in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -453,6 +481,14 @@
 				A10028 /* FloatingIconWindow.swift in Sources */,
 				A10029 /* FloatingIconView.swift in Sources */,
 				A10030 /* ReadabilityService.swift in Sources */,
+				A10031 /* Violation.swift in Sources */,
+				A10032 /* SpellCheckerService.swift in Sources */,
+				A10033 /* GrammarChecker.swift in Sources */,
+				A10034 /* CaseFormatter.swift in Sources */,
+				A10035 /* ProperNounService.swift in Sources */,
+				A10037 /* APStyleCodePass.swift in Sources */,
+				A10038 /* APStylePipeline.swift in Sources */,
+				A10039 /* ConnectionMonitor.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -569,7 +605,7 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MARKETING_VERSION = 1.0;
+				MARKETING_VERSION = 1.2.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.grimly.app;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;
@@ -593,7 +629,7 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MARKETING_VERSION = 1.0;
+				MARKETING_VERSION = 1.2.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.grimly.app;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;
