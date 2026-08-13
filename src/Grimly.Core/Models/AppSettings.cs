@@ -13,8 +13,14 @@ public sealed class AppSettings
     [JsonPropertyName("foundry_endpoint")]
     public string FoundryEndpoint { get; set; } = "http://127.0.0.1:51318";
 
+    /// <summary>
+    /// Factory default Foundry model, as a named constant so startup logic
+    /// can distinguish "user never picked a model" from a deliberate choice.
+    /// </summary>
+    public const string FactoryDefaultModel = "qwen2.5-7b-instruct-qnn-npu:2";
+
     [JsonPropertyName("model_name")]
-    public string ModelName { get; set; } = "qwen2.5-7b-instruct-qnn-npu:2";
+    public string ModelName { get; set; } = FactoryDefaultModel;
 
     [JsonPropertyName("default_mode")]
     public EditingMode DefaultMode { get; set; } = EditingMode.FixGrammar;
@@ -30,4 +36,13 @@ public sealed class AppSettings
 
     [JsonPropertyName("show_floating_icon")]
     public bool ShowFloatingIcon { get; set; } = true;
+
+    /// <summary>
+    /// True once the app has auto-selected the Windows AI (Aion) model on a
+    /// compatible machine. The flip happens at most once — after that the
+    /// user's picker choice (including switching back to a Foundry model)
+    /// is always respected.
+    /// </summary>
+    [JsonPropertyName("windows_ai_defaulted")]
+    public bool WindowsAiDefaulted { get; set; }
 }

@@ -28,7 +28,7 @@
         <!-- Header -->
         <TextBlock Grid.Row="0" Margin="0,0,0,8" TextWrapping="Wrap"
                    Foreground="{DynamicResource SubtleForegroundBrush}"
-                   Text="Pick a model from the Foundry Local catalog. Downloads run several minutes on the first fetch; already-cached models switch instantly."/>
+                   Text="Pick a model. Foundry Local downloads can take several minutes on the first fetch; models already on this PC — cached, Windows AI, or served by Ollama, LM Studio, or GenieX — switch instantly."/>
 
         <!-- Search + NPU filter -->
         <Grid Grid.Row="1" Margin="0,0,0,8">

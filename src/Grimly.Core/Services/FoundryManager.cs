@@ -51,14 +51,39 @@ public enum ConnectionStatus
 public sealed class FoundryManager : IFoundryManager
 {
     private readonly ISettingsService _settingsService;
+    private readonly IExternalLlmProviderService? _externalProviders;
+    private readonly IWindowsAiClient? _windowsAi;
 
-    public FoundryManager(ISettingsService settingsService)
+    public FoundryManager(
+        ISettingsService settingsService,
+        IExternalLlmProviderService? externalProviders = null,
+        IWindowsAiClient? windowsAi = null)
     {
         _settingsService = settingsService;
+        _externalProviders = externalProviders;
+        _windowsAi = windowsAi;
     }
+
+    /// <summary>
+    /// True when the selected model doesn't live in Foundry Local — the
+    /// Windows AI (Aion) virtual model or an external provider (Ollama,
+    /// LM Studio). For those, the Foundry service-management machinery
+    /// must neither block readiness nor overwrite the user's selection
+    /// with whatever model Foundry happens to have loaded.
+    /// </summary>
+    private bool IsNonFoundryModel(string modelId) =>
+        string.Equals(modelId, IWindowsAiClient.ModelId, StringComparison.OrdinalIgnoreCase)
+        || _externalProviders?.MatchProvider(modelId) is not null;
 
     public async Task<(bool success, string? endpoint, string? modelId)> EnsureRunningAsync(CancellationToken ct = default)
     {
+        // Non-Foundry model selected → nothing to warm up here. Report
+        // ready immediately with the user's selection intact. Foundry can
+        // still be started later if the user switches back in Settings.
+        var selected = _settingsService.Load().ModelName;
+        if (IsNonFoundryModel(selected))
+            return (true, _settingsService.Load().FoundryEndpoint, selected);
+
         // Step 1: Check if the service is running, start it if not
         var endpoint = await EnsureServiceRunningAsync(ct);
         if (endpoint == null)
@@ -94,6 +119,11 @@ public sealed class FoundryManager : IFoundryManager
     {
         var settings = _settingsService.Load();
         var modelAlias = settings.ModelName;
+
+        // Non-Foundry model: there's no Foundry connection to repair, and
+        // the reconnect flow below would overwrite ModelName with whatever
+        // model Foundry loads. Report success and leave the selection alone.
+        if (IsNonFoundryModel(modelAlias)) return true;
 
         // Step 1: Stop the service (with timeout — don't hang if it's stuck)
         using var stopCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
@@ -289,6 +319,14 @@ public sealed class FoundryManager : IFoundryManager
     public async Task<List<string>> GetAvailableModelsAsync(CancellationToken ct = default)
     {
         var models = new List<string>();
+
+        // Windows AI (Aion) first — it's the preferred default on machines
+        // that support it, so it heads the Settings picker list too.
+        if (_windowsAi is not null && _windowsAi.IsAvailable)
+        {
+            models.Add(IWindowsAiClient.ModelId);
+        }
+
         var settings = _settingsService.Load();
         var endpoint = settings.FoundryEndpoint;
 
@@ -306,6 +344,22 @@ public sealed class FoundryManager : IFoundryManager
             }
         }
         catch { }
+
+        // External providers (Ollama, LM Studio, GenieX) — their models join
+        // the quick picker with their prefix ("ollama:llama3.2") so selection
+        // routes correctly. autoStartInstalled: a provider that's installed
+        // but not running gets its server launched on the spot, so opening
+        // the picker is all the "demand" needed. Best-effort: an unreachable
+        // provider adds nothing and never blocks the Foundry list.
+        if (_externalProviders is not null)
+        {
+            try
+            {
+                var external = await _externalProviders.DiscoverAsync(autoStartInstalled: true, ct);
+                models.AddRange(external.Select(m => m.Id));
+            }
+            catch { }
+        }
 
         return models;
     }
@@ -346,6 +400,12 @@ public sealed class FoundryManager : IFoundryManager
 
     public async Task<ConnectionStatus> CheckConnectionAsync(CancellationToken ct = default)
     {
+        // Non-Foundry model: the selected backend (Windows AI NPU model or
+        // external provider) doesn't depend on the Foundry service. Report
+        // Connected so the status LED reflects the backend actually in use.
+        if (IsNonFoundryModel(_settingsService.Load().ModelName))
+            return ConnectionStatus.Connected;
+
         if (!IsFoundryInstalled())
             return ConnectionStatus.NotInstalled;
 
@@ -573,6 +633,15 @@ public sealed class FoundryManager : IFoundryManager
     {
         var models = new List<CatalogModelInfo>();
 
+        // Windows AI (Aion Instruct) virtual entry, first in the list.
+        // Cached=true because there's nothing to download through us — the
+        // framework MSIX supplies the weights. FoundryLocalClient routes
+        // requests for this id to the NPU instead of the HTTP endpoint.
+        if (_windowsAi is not null && _windowsAi.IsAvailable)
+        {
+            models.Add(new CatalogModelInfo(IWindowsAiClient.ModelId, "NPU (Windows AI)", null, IsCached: true));
+        }
+
         // Catalog. `foundry model list` (no --available flag — that was
         // removed from the CLI) returns all models the service knows about.
         var (exitCode, output) = await RunFoundryCommandAsync("model list", ct, TimeSpan.FromMinutes(3));
@@ -587,6 +656,20 @@ public sealed class FoundryManager : IFoundryManager
         {
             var cached = cachedIds.Contains(row.Id);
             models.Add(new CatalogModelInfo(row.Id, row.Device, row.SizeBytes, cached));
+        }
+
+        // Append models discovered on other local providers (Ollama, LM
+        // Studio, GenieX) if any are running. Passive — the catalog browser
+        // lists what's reachable without side effects; server auto-start
+        // belongs to the Settings picker path (GetAvailableModelsAsync).
+        if (_externalProviders is not null)
+        {
+            try
+            {
+                var external = await _externalProviders.DiscoverAsync(autoStartInstalled: false, ct);
+                models.AddRange(external);
+            }
+            catch { }
         }
         return models;
     }

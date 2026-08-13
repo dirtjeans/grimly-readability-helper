@@ -14,11 +14,19 @@ public sealed class FoundryLocalClient : IFoundryLocalClient
 {
     private readonly HttpClient _httpClient;
     private readonly ISettingsService _settingsService;
+    private readonly IExternalLlmProviderService? _externalProviders;
+    private readonly IWindowsAiClient? _windowsAi;
 
-    public FoundryLocalClient(HttpClient httpClient, ISettingsService settingsService)
+    public FoundryLocalClient(
+        HttpClient httpClient,
+        ISettingsService settingsService,
+        IExternalLlmProviderService? externalProviders = null,
+        IWindowsAiClient? windowsAi = null)
     {
         _httpClient = httpClient;
         _settingsService = settingsService;
+        _externalProviders = externalProviders;
+        _windowsAi = windowsAi;
     }
 
     public async Task<string> GetEditedTextAsync(string originalText, EditingMode mode, string? customPrompt, CancellationToken ct = default, double? temperature = null)
@@ -37,6 +45,20 @@ public sealed class FoundryLocalClient : IFoundryLocalClient
             "Reply in the same language as the input text. If the input is in English, respond in English.\n\n"
             + systemPrompt;
 
+        // Windows AI (Aion Instruct) route. When the user picked the
+        // "windows-ai" virtual model, skip Foundry's HTTP path entirely and
+        // run the same prompt on-NPU. Aion has no system/user role split or
+        // temperature control — instructions and text concatenate into one
+        // prompt with a separator, matching how small instruct models are
+        // trained to read them.
+        if (_windowsAi is not null &&
+            string.Equals(settings.ModelName, IWindowsAiClient.ModelId, StringComparison.OrdinalIgnoreCase))
+        {
+            var aionResult = await _windowsAi.GenerateAsync(
+                systemPrompt + "\n\n---\n\n" + originalText, ct);
+            return string.IsNullOrWhiteSpace(aionResult) ? originalText : aionResult!;
+        }
+
         // Compute temperature: mode baseline + creativity offset
         double finalTemp;
         if (temperature.HasValue)
@@ -50,9 +72,27 @@ public sealed class FoundryLocalClient : IFoundryLocalClient
             finalTemp = Math.Clamp(baseTemp + offset, 0.0, 1.0);
         }
 
+        // Route by model-id prefix. Foundry Local models are unprefixed
+        // and hit the endpoint from settings. Prefixed ids (e.g.
+        // "ollama:llama3.2", "lmstudio:qwen2.5-7b-instruct") get sent to
+        // the matching provider's OpenAI-compatible endpoint, with the
+        // prefix stripped from the model name so the target service sees
+        // its own native id.
+        var modelId = settings.ModelName;
+        var endpoint = settings.FoundryEndpoint.TrimEnd('/');
+        var chatPath = "/v1/chat/completions";
+        var external = _externalProviders?.MatchProvider(modelId);
+        if (external is not null)
+        {
+            var colon = modelId.IndexOf(':');
+            modelId = colon >= 0 ? modelId[(colon + 1)..] : modelId;
+            endpoint = external.BaseUrl.TrimEnd('/');
+            chatPath = external.ChatEndpoint;
+        }
+
         var request = new ChatCompletionRequest
         {
-            Model = settings.ModelName,
+            Model = modelId,
             Temperature = finalTemp,
             MaxTokens = settings.MaxTokens,
             Messages =
@@ -65,8 +105,6 @@ public sealed class FoundryLocalClient : IFoundryLocalClient
         var json = JsonSerializer.Serialize(request);
         var content = new StringContent(json, Encoding.UTF8, "application/json");
 
-        var endpoint = settings.FoundryEndpoint.TrimEnd('/');
-
         // 2-minute timeout — local LLMs can be slow on long text but shouldn't take longer
         using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
         timeoutCts.CancelAfter(TimeSpan.FromMinutes(2));
@@ -74,7 +112,7 @@ public sealed class FoundryLocalClient : IFoundryLocalClient
         try
         {
             var response = await _httpClient.PostAsync(
-                $"{endpoint}/v1/chat/completions", content, timeoutCts.Token);
+                $"{endpoint}{chatPath}", content, timeoutCts.Token);
 
             if (!response.IsSuccessStatusCode)
             {

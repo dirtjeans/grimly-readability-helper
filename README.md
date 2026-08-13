@@ -31,8 +31,8 @@ Want a second opinion? **Match Word** runs your text through Microsoft Word's re
 
 Download the latest release for your platform from the [Releases page](../../releases/latest):
 
-- **Windows (x64)** — `GrimlyX64.exe`
-- **Windows (ARM64)** — `GrimlyARM64.exe`
+- **Windows (x64)** — `Grimly-windows-x64.exe`
+- **Windows (ARM64)** — `Grimly-windows-arm64.exe`
 - **macOS** — `Grimly.app.zip` (the `.app` bundle, zipped — macOS can't download a folder directly)
 
 ### First run
@@ -44,6 +44,11 @@ On ARM64 devices with a Qualcomm Neural Processing Unit, Grimly runs on the NPU 
 ### Advanced: choose your own model
 
 If you're already running Foundry Local, you can point Grimly at any available model through **Settings > Model**.
+
+Grimly can also run on models served by other local runtimes, all listed in the same picker:
+
+- **Windows AI (`windows-ai`)** — Microsoft's Aion Instruct on-device model, running on the NPU of Copilot+ PCs. Requires the [Aion Instruct Preview framework package](https://github.com/microsoft/Aion-Instruct-Preview-Sample/releases) (`Add-AppxPackage` the ARM64 `.msix`, ~1.3 GB, one time). When present, Grimly selects it as the default automatically. First use compiles the model for your NPU and can take a few minutes; it's fast after that.
+- **Ollama, LM Studio, and Qualcomm GenieX** — models from these apps appear in the picker automatically (prefixed `ollama:`, `lmstudio:`, `geniex:`) while their local server is running. Grimly can start an installed-but-idle server for you, and offers one-click winget installs for Ollama and LM Studio.
 
 ## The 16 techniques
 

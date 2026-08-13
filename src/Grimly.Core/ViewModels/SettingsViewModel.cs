@@ -10,6 +10,8 @@ public partial class SettingsViewModel : ObservableObject
 {
     private readonly ISettingsService _settingsService;
     private readonly IFoundryManager _foundryManager;
+    private readonly IProviderInstallService? _providerInstaller;
+    private readonly IExternalLlmProviderService? _externalProviders;
 
     [ObservableProperty] private string _hotkeyModifiers = "Ctrl+Alt";
     [ObservableProperty] private string _hotkeyKey = "G";
@@ -22,6 +24,35 @@ public partial class SettingsViewModel : ObservableObject
     [ObservableProperty] private bool _isLoadingModels;
     [ObservableProperty] private string _foundryStatus = "Checking...";
     [ObservableProperty] private string _maxTokensInfo = "";
+
+    /// <summary>True while a provider winget install is running — disables
+    /// the install links and shows the status line.</summary>
+    [ObservableProperty] private bool _isInstallingProvider;
+
+    /// <summary>Latest line of winget output during a provider install.</summary>
+    [ObservableProperty] private string _providerInstallStatus = "";
+
+    // Per-provider installed flags. Installed providers show a Start link;
+    // missing ones show an Install link. Refreshed after installs complete.
+    [ObservableProperty] private bool _isOllamaInstalled;
+    [ObservableProperty] private bool _isLmStudioInstalled;
+    [ObservableProperty] private bool _isGenieXInstalled;
+    [ObservableProperty] private bool _showInstallRow;
+    [ObservableProperty] private bool _showStartRow;
+
+    private void RefreshInstalledFlags()
+    {
+        if (_externalProviders is null) return;
+        bool Installed(string prefix) =>
+            _externalProviders.Providers
+                .Where(p => string.Equals(p.Prefix, prefix, StringComparison.OrdinalIgnoreCase))
+                .Any(_externalProviders.IsInstalled);
+        IsOllamaInstalled = Installed("ollama");
+        IsLmStudioInstalled = Installed("lmstudio");
+        IsGenieXInstalled = Installed("geniex");
+        ShowInstallRow = !IsOllamaInstalled || !IsLmStudioInstalled || !IsGenieXInstalled;
+        ShowStartRow = IsOllamaInstalled || IsLmStudioInstalled || IsGenieXInstalled;
+    }
 
     async partial void OnModelNameChanged(string value)
     {
@@ -64,11 +95,18 @@ public partial class SettingsViewModel : ObservableObject
 
     public event Action<bool>? RequestClose;
 
-    public SettingsViewModel(ISettingsService settingsService, IFoundryManager foundryManager)
+    public SettingsViewModel(
+        ISettingsService settingsService,
+        IFoundryManager foundryManager,
+        IProviderInstallService? providerInstaller = null,
+        IExternalLlmProviderService? externalProviders = null)
     {
         _settingsService = settingsService;
         _foundryManager = foundryManager;
+        _providerInstaller = providerInstaller;
+        _externalProviders = externalProviders;
         LoadFromSettings();
+        RefreshInstalledFlags();
 
         // Seed the model list with the saved model so it shows immediately
         if (!string.IsNullOrEmpty(ModelName))
@@ -135,20 +173,110 @@ public partial class SettingsViewModel : ObservableObject
     [RelayCommand]
     private void RefreshModels() => LoadModelsAsync();
 
+    /// <summary>
+    /// One-click winget install for an external provider. Parameter is the
+    /// winget package id ("Ollama.Ollama", "ElementLabs.LMStudio"). After a
+    /// successful install the model list refreshes — though most providers
+    /// need the user to start the app and download a model before anything
+    /// shows up, which the status line spells out.
+    /// </summary>
+    [RelayCommand]
+    private async Task InstallProviderAsync(string wingetId)
+    {
+        if (_providerInstaller is null || IsInstallingProvider) return;
+
+        IsInstallingProvider = true;
+        ProviderInstallStatus = $"Installing {wingetId} via winget…";
+        try
+        {
+            var progress = new Progress<string>(line => ProviderInstallStatus = line);
+            var ok = await _providerInstaller.InstallWingetPackageAsync(wingetId, progress);
+            ProviderInstallStatus = ok
+                ? "Installed. Start the app and download a model, then click Refresh."
+                : "Install failed — try installing manually from the vendor's site.";
+            if (ok)
+            {
+                RefreshInstalledFlags();
+                LoadModelsAsync();
+            }
+        }
+        catch (Exception ex)
+        {
+            ProviderInstallStatus = $"Install error: {ex.Message}";
+        }
+        finally
+        {
+            IsInstallingProvider = false;
+        }
+    }
+
+    /// <summary>
+    /// Explicit "start this provider's server" action. Works when the app
+    /// is installed but idle: launches its CLI detached, waits for the
+    /// server to answer, then refreshes the model list. Reports through
+    /// the same status line as installs.
+    /// </summary>
+    [RelayCommand]
+    private async Task StartProviderAsync(string prefix)
+    {
+        var provider = _externalProviders?.Providers
+            .FirstOrDefault(p => string.Equals(p.Prefix, prefix, StringComparison.OrdinalIgnoreCase));
+        if (provider is null || IsInstallingProvider) return;
+
+        IsInstallingProvider = true;
+        ProviderInstallStatus = $"Starting {provider.DisplayLabel}…";
+        try
+        {
+            var ok = await _externalProviders!.EnsureRunningAsync(provider);
+            ProviderInstallStatus = ok
+                ? $"{provider.DisplayLabel} is running."
+                : $"Couldn't start {provider.DisplayLabel} — is it installed?";
+            if (ok) LoadModelsAsync();
+        }
+        catch (Exception ex)
+        {
+            ProviderInstallStatus = $"Start error: {ex.Message}";
+        }
+        finally
+        {
+            IsInstallingProvider = false;
+        }
+    }
+
+    /// <summary>Open a provider's website (used for GenieX, which has no
+    /// winget package — it ships through Qualcomm AI Hub).</summary>
+    [RelayCommand]
+    private void OpenProviderSite(string url)
+    {
+        try
+        {
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+            {
+                FileName = url,
+                UseShellExecute = true,
+            });
+        }
+        catch { }
+    }
+
     [RelayCommand]
     private void Save()
     {
-        var s = new AppSettings
-        {
-            HotkeyModifiers = HotkeyModifiers,
-            HotkeyKey = HotkeyKey,
-            FoundryEndpoint = FoundryEndpoint,
-            ModelName = ModelName,
-            DefaultMode = DefaultMode,
-            Creativity = Creativity,
-            MaxTokens = MaxTokens,
-            PopupOpacity = PopupOpacity
-        };
+        // Mutate the loaded settings rather than constructing a fresh
+        // AppSettings: fields this dialog doesn't edit (WindowsAiDefaulted,
+        // ShowFloatingIcon, and anything added later) must survive a save.
+        // Building a new object silently reset them to defaults — which,
+        // for WindowsAiDefaulted, re-armed the one-time windows-ai flip and
+        // overwrote the user's model choice on the next launch.
+        var s = _settingsService.Load();
+        s.HotkeyModifiers = HotkeyModifiers;
+        s.HotkeyKey = HotkeyKey;
+        s.FoundryEndpoint = FoundryEndpoint;
+        s.ModelName = ModelName;
+        s.DefaultMode = DefaultMode;
+        s.Creativity = Creativity;
+        s.MaxTokens = MaxTokens;
+        s.PopupOpacity = PopupOpacity;
         _settingsService.Save(s);
         RequestClose?.Invoke(true);
     }

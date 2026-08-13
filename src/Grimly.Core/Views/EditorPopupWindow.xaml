@@ -185,6 +185,15 @@
                         HorizontalAlignment="Right"
                         Style="{StaticResource ActionButton}"
                         Command="{Binding DismissCommand}"/>
+                <!-- Settings shortcut — opens the same Settings window as
+                     the tray menu, so the model picker is one click away. -->
+                <Button DockPanel.Dock="Right" Content="⚙"
+                        Background="Transparent" Foreground="{DynamicResource MutedForegroundBrush}"
+                        FontSize="14" Padding="6,2"
+                        HorizontalAlignment="Right"
+                        Style="{StaticResource ActionButton}"
+                        Command="{Binding OpenSettingsCommand}"
+                        ToolTip="Settings and model picker"/>
                 <!-- Connection indicator: dot + full status text (includes
                      the active model name when connected). Click to re-check.
                      MaxWidth + TextTrimming guard against unusually long

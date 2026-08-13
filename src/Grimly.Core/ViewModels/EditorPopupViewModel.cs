@@ -234,6 +234,15 @@ public partial class EditorPopupViewModel : ObservableObject
 
     public event Action? RequestClose;
     public event Action? ReviewSegmentsChanged;
+
+    /// <summary>Raised by the title-bar gear button. ApplicationHost
+    /// subscribes and opens the Settings window (same flow as the tray
+    /// menu) so users can reach the model picker without leaving the
+    /// popup.</summary>
+    public event Action? SettingsRequested;
+
+    [RelayCommand]
+    private void OpenSettings() => SettingsRequested?.Invoke();
     public IntPtr PreviousForegroundWindow { get; set; }
 
     public EditorPopupViewModel(

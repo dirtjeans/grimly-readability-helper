@@ -35,6 +35,11 @@ public sealed class ApplicationHost : IDisposable
     private Task<string?>? _prefetchSelectionTask;
     private Mutex? _singleInstanceMutex;
 
+    /// <summary>Most recently opened editor popup's VM. Lets settings
+    /// changes refresh the popup's connection line (model name) without
+    /// the popup having to poll. Harmless if the popup already closed.</summary>
+    private EditorPopupViewModel? _activePopupVm;
+
     public ApplicationHost(Application app, BrandingOptions branding)
     {
         _app = app;
@@ -98,10 +103,64 @@ public sealed class ApplicationHost : IDisposable
         services.AddSingleton<IProperNounService, ProperNounService>();
         services.AddSingleton<IApStyleCodePass, ApStyleCodePass>();
         services.AddSingleton<IApStylePipeline, ApStylePipeline>();
+        // Windows AI (Aion Instruct) — registered only when the framework
+        // package is installed and the dependency can be taken. On other
+        // machines the registration is skipped and the model picker simply
+        // doesn't list windows-ai.
+        if (OperatingSystem.IsWindowsVersionAtLeast(10, 0, 22621))
+        {
+            var windowsAi = new WindowsAiClient();
+            if (windowsAi.IsAvailable)
+            {
+                services.AddSingleton<IWindowsAiClient>(windowsAi);
+            }
+        }
         services.AddHttpClient<IFoundryLocalClient, FoundryLocalClient>();
+        // External local-LLM providers (Ollama, LM Studio). Detected by
+        // HTTP probe at picker-refresh time; their models appear prefixed
+        // ("ollama:…", "lmstudio:…") and requests route to the right port.
+        services.AddHttpClient<IExternalLlmProviderService, ExternalLlmProviderService>();
+        services.AddSingleton<IProviderInstallService, ProviderInstallService>();
         _serviceProvider = services.BuildServiceProvider();
 
-        var settings = _serviceProvider.GetRequiredService<ISettingsService>().Load();
+        var settingsService = _serviceProvider.GetRequiredService<ISettingsService>();
+        var settings = settingsService.Load();
+
+        // Windows AI default. On machines where the Aion framework is
+        // available, flip the selected model to the on-device NPU model —
+        // once. The WindowsAiDefaulted flag records that the flip happened,
+        // so any later picker choice (including deliberately switching back
+        // to a Foundry model) is permanently respected. Existing installs
+        // get the flip too the first time they run a build that ships
+        // Windows AI support.
+        if (!settings.WindowsAiDefaulted &&
+            _serviceProvider.GetService<IWindowsAiClient>() is { IsAvailable: true })
+        {
+            settings.ModelName = IWindowsAiClient.ModelId;
+            settings.WindowsAiDefaulted = true;
+            settingsService.Save(settings);
+            StartupLog.Write("Windows AI available — defaulting model to windows-ai (one-time).");
+        }
+
+        // If the selected model lives on an external provider (Ollama,
+        // LM Studio, GenieX), make sure that provider's server is up —
+        // start it if it's installed but idle (e.g. after a reboot).
+        // Fire-and-forget: worst case the first rewrite races the server
+        // start and the user retries; the app never blocks on this.
+        var externalProviders = _serviceProvider.GetService<IExternalLlmProviderService>();
+        var selectedProvider = externalProviders?.MatchProvider(settings.ModelName);
+        if (externalProviders is not null && selectedProvider is not null)
+        {
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    var ok = await externalProviders.EnsureRunningAsync(selectedProvider);
+                    StartupLog.Write($"External provider {selectedProvider.DisplayLabel} ensure-running: {ok}");
+                }
+                catch { /* best-effort */ }
+            });
+        }
 
         SetupTrayIcon();
         SetupHotkey(settings);
@@ -552,6 +611,8 @@ public sealed class ApplicationHost : IDisposable
                 PreviousForegroundWindow = _pendingSelectionWindow
             };
 
+            vm.SettingsRequested += ShowSettings;
+            _activePopupVm = vm;
             var popup = new EditorPopupWindow
             {
                 DataContext = vm,
@@ -616,6 +677,8 @@ public sealed class ApplicationHost : IDisposable
             if (hasSelection) vm.SetCapturedText(selectedText!);
             else vm.IsManualPasteMode = true;
 
+            vm.SettingsRequested += ShowSettings;
+            _activePopupVm = vm;
             var popup = new EditorPopupWindow
             {
                 DataContext = vm,
@@ -700,7 +763,9 @@ public sealed class ApplicationHost : IDisposable
     {
         var vm = new SettingsViewModel(
             _serviceProvider!.GetRequiredService<ISettingsService>(),
-            _serviceProvider!.GetRequiredService<IFoundryManager>());
+            _serviceProvider!.GetRequiredService<IFoundryManager>(),
+            _serviceProvider!.GetService<IProviderInstallService>(),
+            _serviceProvider!.GetService<IExternalLlmProviderService>());
         var window = new SettingsWindow
         {
             DataContext = vm,
@@ -716,6 +781,12 @@ public sealed class ApplicationHost : IDisposable
 
                 var newSettings = _serviceProvider!.GetRequiredService<ISettingsService>().Load();
                 SetupHotkey(newSettings);
+
+                // Refresh any open popup's connection line so it reflects
+                // the newly selected model immediately — without this the
+                // popup keeps showing the previous model until its next
+                // connection check.
+                _ = _activePopupVm?.CheckConnectionAsync();
 
                 // If the model name changed, nudge Foundry to load the new
                 // model now so it's ready for the next request. Without this,

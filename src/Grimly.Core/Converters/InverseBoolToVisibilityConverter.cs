@@ -1,0 +1,17 @@
+using System.Globalization;
+using System.Windows;
+using System.Windows.Data;
+
+namespace Grimly.Converters;
+
+/// <summary>Visible when false, collapsed when true — the complement of
+/// BooleanToVisibilityConverter, used for "show Install link only when the
+/// provider is NOT installed".</summary>
+public sealed class InverseBoolToVisibilityConverter : IValueConverter
+{
+    public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
+        => value is true ? Visibility.Collapsed : Visibility.Visible;
+
+    public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture)
+        => throw new NotSupportedException();
+}
