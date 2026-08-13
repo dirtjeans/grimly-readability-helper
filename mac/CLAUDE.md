@@ -1,8 +1,29 @@
 # Note for a future Claude — Mac side of Grimly
 
-You're picking up mid-project. The user is Kenneth Spencer Brown; the project is **Grimly**, a local-LLM writing assistant (Windows + macOS) that runs on Microsoft Foundry Local. Windows is the primary platform and is fully caught up; **the Mac is behind Windows by two versions (v1.1.0 and v1.2.0)** and needs a build + source ports for the features listed below.
+You're picking up mid-project. The user is Kenneth Spencer Brown; the project is **Grimly**, a local-LLM writing assistant (Windows + macOS) that runs on local LLM runtimes. Windows is the primary platform. **Mac status: v1.1.0/v1.2.0 features were ported in commit `ad12d49` (2026-08-05). Windows has since shipped v1.3.0 — see the next section for what to port and what to skip.**
 
-## Catch-up as of 2026-08-03 — Windows is at v1.2.0
+## Catch-up as of 2026-08-13 — Windows is at v1.3.0
+
+Release: <https://github.com/dirtjeans/grimly-readability-helper/releases/tag/v1.3.0> (Windows binaries attached; **`Grimly.app.zip` slot is empty — build and attach one** with `gh release upload v1.3.0 Grimly.app.zip --clobber`).
+
+### Port to Mac (works cross-platform)
+
+1. **External local-LLM providers — Ollama and LM Studio.** Windows added `ExternalLlmProviderService.cs`: probes each provider's localhost server (Ollama `http://localhost:11434`, list via `/api/tags`; LM Studio `http://localhost:1234`, list via `/v1/models`), injects their models into the model picker prefixed `ollama:` / `lmstudio:`, and routes chat requests to the provider's OpenAI-compatible `/v1/chat/completions` with the prefix stripped. Both apps exist on macOS with the same ports/CLIs — this ports directly. Key integration points to mirror in Swift:
+   - Routing lives in `FoundryLocalClient.cs` (prefix match → different base URL)
+   - `FoundryManager.IsNonFoundryModel()` guards keep Foundry warm-up/reconnect/status from clobbering a non-Foundry selection — **don't skip these**, they prevent the "my model choice keeps reverting" bug
+   - Auto-start installed-but-idle servers: spawn `ollama serve` / `lms server start` detached, poll the list endpoint (~8 s window). Mac paths: `ollama` on PATH or `/usr/local/bin` / `/opt/homebrew/bin`; `~/.lmstudio/bin/lms`
+   - Settings UI: providers detected on disk show a "Start" link, missing ones an "Install" link (macOS: link to vendor sites or `brew install ollama` — Windows uses winget), plus hint text "Ollama and LM Studio models appear here if running", provider icons in the model list (🦙 for Ollama, purple LM badge, Microsoft squares for Foundry)
+2. **Settings save-preservation bug** — Windows `SettingsViewModel.Save()` was constructing a fresh settings object, silently resetting fields the dialog doesn't edit. If the Mac settings save does the same (check `SettingsView`/whatever persists), fix it the same way: load-mutate-save.
+3. **Gear button in the popup title bar** that opens Settings directly (tray/menu-bar only was too buried), and refresh the popup's "Connected · model" status line right after settings save so it doesn't show a stale model name.
+4. **Model browser blurb** updated to: "Pick a model. Foundry Local downloads can take several minutes on the first fetch; models already on this PC — cached, Windows AI, or served by Ollama, LM Studio, or GenieX — switch instantly." (Adapt the provider list to what the Mac build actually supports.)
+
+### Skip on Mac (platform-specific)
+
+- **Windows AI / Aion Instruct (`windows-ai` virtual model)** — Copilot+ Windows NPU only (WinRT `AionInstructPreview.Text`). No macOS equivalent; a future Apple-Intelligence analog would be its own design conversation.
+- **Qualcomm GenieX provider** (`geniex:` prefix, port 18181) — Snapdragon-only runtime. Harmless to include the passive probe, but there's nothing to detect on a Mac; fine to omit.
+- **winget one-click installs** — Windows-only mechanism; on Mac link out or use Homebrew.
+
+## Historical: catch-up as of 2026-08-03 — Windows at v1.2.0 (PORTED — done in `ad12d49`, kept for reference)
 
 Ported source targets (public repo): `source/grimly-readability-helper/src/Grimly.Core/`. Where a Windows path is cited below, look for the equivalent Swift file under `mac/Grimly/{Services,ViewModels,Views}`.
 
