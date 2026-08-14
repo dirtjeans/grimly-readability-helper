@@ -28,15 +28,23 @@ public sealed record ExternalProvider(
     // Full-inventory listing via the provider's CLI. Some servers
     // (LM Studio, GenieX) only report *loaded* models over HTTP; their
     // CLIs enumerate everything downloaded. Null = HTTP list is already
-    // complete (Ollama).
+    // complete (Ollama). Entries may carry a DeviceLabel override so
+    // runtime-specific tags (e.g. GenieX qairt = NPU) survive into the
+    // catalog and its NPU/GPU filters.
     string? ListCliArgs = null,
-    Func<string, IEnumerable<string>>? ParseCliList = null,
+    Func<string, IEnumerable<CliModelEntry>>? ParseCliList = null,
     // Remote discovery. None of these providers exposes an enumerable
     // catalog API, so the browser links to where the catalog actually
     // lives, and PullArgsTemplate ({0} = model name) fetches a model the
     // user found there.
     string? CatalogUrl = null,
     string? PullArgsTemplate = null);
+
+/// <summary>One model reported by a provider's CLI listing. DeviceLabel
+/// overrides the provider's DisplayLabel in the catalog when the CLI
+/// exposes per-model runtime info (GenieX: qairt = NPU, llama_cpp =
+/// CPU/GPU).</summary>
+public sealed record CliModelEntry(string Id, string? DeviceLabel = null);
 
 public interface IExternalLlmProviderService
 {
@@ -160,13 +168,14 @@ public sealed class ExternalLlmProviderService : IExternalLlmProviderService
             ParseCliList: json =>
             {
                 using var doc = JsonDocument.Parse(json);
-                if (doc.RootElement.ValueKind != JsonValueKind.Array) return Array.Empty<string>();
+                if (doc.RootElement.ValueKind != JsonValueKind.Array) return Array.Empty<CliModelEntry>();
                 return doc.RootElement.EnumerateArray()
                     .Where(e => e.TryGetProperty("type", out var t)
                              && t.GetString() is "llm" or "vlm")
                     .Where(e => e.TryGetProperty("modelKey", out _))
                     .Select(e => e.GetProperty("modelKey").GetString() ?? "")
                     .Where(n => !string.IsNullOrWhiteSpace(n))
+                    .Select(n => new CliModelEntry(n))
                     .ToArray();
             },
             // LM Studio's discovery is Hugging Face; `lms get` fetches by
@@ -198,26 +207,33 @@ public sealed class ExternalLlmProviderService : IExternalLlmProviderService
             ParseCliList: json =>
             {
                 using var doc = JsonDocument.Parse(json);
-                if (doc.RootElement.ValueKind != JsonValueKind.Array) return Array.Empty<string>();
-                var ids = new List<string>();
+                if (doc.RootElement.ValueKind != JsonValueKind.Array) return Array.Empty<CliModelEntry>();
+                var entries = new List<CliModelEntry>();
                 foreach (var e in doc.RootElement.EnumerateArray())
                 {
                     var name = e.TryGetProperty("name", out var n) ? n.GetString() : null;
                     if (string.IsNullOrWhiteSpace(name)) continue;
+                    // qairt = Qualcomm AI Runtime = runs on the Hexagon NPU;
+                    // llama_cpp = CPU/GPU. Tag the device so the catalog's
+                    // NPU filter can tell them apart.
+                    var runtime = e.TryGetProperty("runtime", out var r) ? r.GetString() : null;
+                    var device = string.Equals(runtime, "qairt", StringComparison.OrdinalIgnoreCase)
+                        ? "GenieX NPU"
+                        : "GenieX";
                     if (e.TryGetProperty("precisions", out var precs) && precs.ValueKind == JsonValueKind.Array)
                     {
                         foreach (var prec in precs.EnumerateArray())
                         {
                             var p = prec.GetString();
-                            if (!string.IsNullOrWhiteSpace(p)) ids.Add($"{name}:{p}");
+                            if (!string.IsNullOrWhiteSpace(p)) entries.Add(new CliModelEntry($"{name}:{p}", device));
                         }
                     }
                     else
                     {
-                        ids.Add(name!);
+                        entries.Add(new CliModelEntry(name!, device));
                     }
                 }
-                return ids;
+                return entries;
             },
             CatalogUrl: "https://aihub.qualcomm.com/",
             PullArgsTemplate: "pull {0}"),
@@ -298,9 +314,9 @@ public sealed class ExternalLlmProviderService : IExternalLlmProviderService
                 if (process.ExitCode != 0) return null;
 
                 return p.ParseCliList(output)
-                    .Select(id => new CatalogModelInfo(
-                        Id: $"{p.Prefix}:{id}",
-                        Device: p.DisplayLabel,
+                    .Select(e => new CatalogModelInfo(
+                        Id: $"{p.Prefix}:{e.Id}",
+                        Device: e.DeviceLabel ?? p.DisplayLabel,
                         SizeBytes: null,
                         IsCached: true))
                     .ToArray();
