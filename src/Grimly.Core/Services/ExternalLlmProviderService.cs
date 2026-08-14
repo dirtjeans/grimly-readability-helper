@@ -24,7 +24,13 @@ public sealed record ExternalProvider(
     // themselves to PATH) and the arguments that start the server.
     // Null = provider can't be auto-started.
     string[]? StartExeCandidates = null,
-    string? StartArgs = null);
+    string? StartArgs = null,
+    // Full-inventory listing via the provider's CLI. Some servers
+    // (LM Studio, GenieX) only report *loaded* models over HTTP; their
+    // CLIs enumerate everything downloaded. Null = HTTP list is already
+    // complete (Ollama).
+    string? ListCliArgs = null,
+    Func<string, IEnumerable<string>>? ParseCliList = null);
 
 public interface IExternalLlmProviderService
 {
@@ -130,7 +136,23 @@ public sealed class ExternalLlmProviderService : IExternalLlmProviderService
                 "lms",
                 Environment.ExpandEnvironmentVariables(@"%USERPROFILE%\.lmstudio\bin\lms.exe"),
             ],
-            StartArgs: "server start"),
+            StartArgs: "server start",
+            // `lms ls --json` → [{ "type": "llm"|"vlm"|"embedding",
+            // "modelKey": "openai/gpt-oss-20b", … }]. modelKey is the id the
+            // server accepts; embeddings can't chat, so they're skipped.
+            ListCliArgs: "ls --json",
+            ParseCliList: json =>
+            {
+                using var doc = JsonDocument.Parse(json);
+                if (doc.RootElement.ValueKind != JsonValueKind.Array) return Array.Empty<string>();
+                return doc.RootElement.EnumerateArray()
+                    .Where(e => e.TryGetProperty("type", out var t)
+                             && t.GetString() is "llm" or "vlm")
+                    .Where(e => e.TryGetProperty("modelKey", out _))
+                    .Select(e => e.GetProperty("modelKey").GetString() ?? "")
+                    .Where(n => !string.IsNullOrWhiteSpace(n))
+                    .ToArray();
+            }),
 
         // Qualcomm GenieX — `geniex serve` exposes an OpenAI-compatible
         // server on port 18181. Lets Snapdragon users run NPU-optimized
@@ -143,8 +165,40 @@ public sealed class ExternalLlmProviderService : IExternalLlmProviderService
             ChatEndpoint: "/v1/chat/completions",
             ListPath: "/v1/models",
             ExtractModels: ExtractOpenAiModelIds,
-            StartExeCandidates: ["geniex"],
-            StartArgs: "serve"),
+            StartExeCandidates:
+            [
+                "geniex",
+                Environment.ExpandEnvironmentVariables(@"%LOCALAPPDATA%\GenieX CLI\geniex.exe"),
+            ],
+            StartArgs: "serve",
+            // `geniex list --format json` → [{ "name": "google/gemma-4-…",
+            // "precisions": ["Q4_0"], … }]. Serve-time ids are
+            // "name:precision", matching what /v1/models reports.
+            ListCliArgs: "list --format json",
+            ParseCliList: json =>
+            {
+                using var doc = JsonDocument.Parse(json);
+                if (doc.RootElement.ValueKind != JsonValueKind.Array) return Array.Empty<string>();
+                var ids = new List<string>();
+                foreach (var e in doc.RootElement.EnumerateArray())
+                {
+                    var name = e.TryGetProperty("name", out var n) ? n.GetString() : null;
+                    if (string.IsNullOrWhiteSpace(name)) continue;
+                    if (e.TryGetProperty("precisions", out var precs) && precs.ValueKind == JsonValueKind.Array)
+                    {
+                        foreach (var prec in precs.EnumerateArray())
+                        {
+                            var p = prec.GetString();
+                            if (!string.IsNullOrWhiteSpace(p)) ids.Add($"{name}:{p}");
+                        }
+                    }
+                    else
+                    {
+                        ids.Add(name!);
+                    }
+                }
+                return ids;
+            }),
     };
 
     /// <summary>Shared extractor for OpenAI-compatible "/v1/models"
@@ -172,12 +226,74 @@ public sealed class ExternalLlmProviderService : IExternalLlmProviderService
 
     private async Task<IReadOnlyList<CatalogModelInfo>> ProbeAsync(ExternalProvider p, bool autoStart, CancellationToken ct)
     {
-        var models = await TryListAsync(p, ProbeTimeout, ct);
-        if (models is not null) return models;
-        if (!autoStart) return Array.Empty<CatalogModelInfo>();
+        var httpModels = await TryListAsync(p, ProbeTimeout, ct);
+        if (httpModels is null && autoStart && await EnsureRunningAsync(p, ct))
+        {
+            httpModels = await TryListAsync(p, TimeSpan.FromSeconds(2), ct);
+        }
 
-        if (!await EnsureRunningAsync(p, ct)) return Array.Empty<CatalogModelInfo>();
-        return await TryListAsync(p, TimeSpan.FromSeconds(2), ct) ?? Array.Empty<CatalogModelInfo>();
+        // Union with the CLI's full inventory. LM Studio and GenieX only
+        // report *loaded* models over HTTP; their CLIs list everything
+        // downloaded, which is what users expect the picker to show.
+        var cliModels = await TryListViaCliAsync(p, ct);
+
+        if (httpModels is null && cliModels is null) return Array.Empty<CatalogModelInfo>();
+
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var union = new List<CatalogModelInfo>();
+        foreach (var m in (httpModels ?? []).Concat(cliModels ?? []))
+        {
+            if (seen.Add(m.Id)) union.Add(m);
+        }
+        return union;
+    }
+
+    /// <summary>Enumerate a provider's downloaded models via its CLI, or
+    /// null when the provider has no CLI listing or it fails.</summary>
+    private async Task<IReadOnlyList<CatalogModelInfo>?> TryListViaCliAsync(ExternalProvider p, CancellationToken ct)
+    {
+        if (p.ListCliArgs is null || p.ParseCliList is null || p.StartExeCandidates is null) return null;
+
+        foreach (var exe in p.StartExeCandidates)
+        {
+            try
+            {
+                var psi = new System.Diagnostics.ProcessStartInfo
+                {
+                    FileName = exe,
+                    Arguments = p.ListCliArgs,
+                    UseShellExecute = false,
+                    RedirectStandardOutput = true,
+                    CreateNoWindow = true,
+                };
+                using var process = System.Diagnostics.Process.Start(psi);
+                if (process is null) continue;
+
+                var output = await process.StandardOutput.ReadToEndAsync(ct);
+                using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                timeout.CancelAfter(TimeSpan.FromSeconds(10));
+                await process.WaitForExitAsync(timeout.Token);
+                if (process.ExitCode != 0) return null;
+
+                return p.ParseCliList(output)
+                    .Select(id => new CatalogModelInfo(
+                        Id: $"{p.Prefix}:{id}",
+                        Device: p.DisplayLabel,
+                        SizeBytes: null,
+                        IsCached: true))
+                    .ToArray();
+            }
+            catch (OperationCanceledException)
+            {
+                return null;
+            }
+            catch
+            {
+                // Executable not found at this candidate, or parse failed —
+                // try the next candidate.
+            }
+        }
+        return null;
     }
 
     public async Task<bool> EnsureRunningAsync(ExternalProvider p, CancellationToken ct = default)
