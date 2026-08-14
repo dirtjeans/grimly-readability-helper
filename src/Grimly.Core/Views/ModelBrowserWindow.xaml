@@ -22,9 +22,10 @@
             <RowDefinition Height="Auto"/>  <!-- 0 header -->
             <RowDefinition Height="Auto"/>  <!-- 1 filter row -->
             <RowDefinition Height="*"/>     <!-- 2 list -->
-            <RowDefinition Height="Auto"/>  <!-- 3 error -->
-            <RowDefinition Height="Auto"/>  <!-- 4 progress / status -->
-            <RowDefinition Height="Auto"/>  <!-- 5 buttons -->
+            <RowDefinition Height="Auto"/>  <!-- 3 pull-by-name row -->
+            <RowDefinition Height="Auto"/>  <!-- 4 error -->
+            <RowDefinition Height="Auto"/>  <!-- 5 progress / status -->
+            <RowDefinition Height="Auto"/>  <!-- 6 buttons -->
         </Grid.RowDefinitions>
 
         <!-- Header -->
@@ -181,7 +182,29 @@
         </Border>
 
         <!-- Error -->
-        <TextBlock Grid.Row="3" Text="{Binding ErrorMessage}"
+        <StackPanel Grid.Row="3" Orientation="Horizontal" Margin="0,8,0,0"
+                    Visibility="{Binding HasPullProviders, Converter={StaticResource BoolToVis}}">
+            <TextBlock Text="Get more:" VerticalAlignment="Center" Margin="0,0,6,0"
+                       Foreground="{DynamicResource SubtleForegroundBrush}" FontSize="11"/>
+            <ComboBox Width="110" VerticalAlignment="Center"
+                      ItemsSource="{Binding PullProviders}"
+                      SelectedItem="{Binding SelectedPullProvider, Mode=TwoWay}"
+                      DisplayMemberPath="DisplayLabel"/>
+            <TextBox Width="180" Margin="6,0,0,0" VerticalAlignment="Center" Padding="4,3"
+                     Text="{Binding PullModelName, UpdateSourceTrigger=PropertyChanged}"
+                     Background="{DynamicResource InputBackgroundBrush}"
+                     Foreground="{DynamicResource InputForegroundBrush}"
+                     BorderBrush="{DynamicResource InputBorderBrush}"
+                     ToolTip="Model name as it appears in the provider's catalog"/>
+            <Button Content="Pull" Margin="6,0,0,0" Padding="10,3" VerticalAlignment="Center"
+                    Command="{Binding PullExternalCommand}"/>
+            <TextBlock VerticalAlignment="Center" Margin="8,0,0,0" FontSize="11">
+                <Hyperlink Command="{Binding OpenCatalogSiteCommand}"
+                           Foreground="{DynamicResource AcceptButtonBackgroundBrush}">Browse catalog ↗</Hyperlink>
+            </TextBlock>
+        </StackPanel>
+
+        <TextBlock Grid.Row="4" Text="{Binding ErrorMessage}"
                    Foreground="{DynamicResource ErrorForegroundBrush}"
                    TextWrapping="Wrap" Margin="0,8,0,0" FontSize="11">
             <TextBlock.Style>
@@ -197,7 +220,7 @@
         </TextBlock>
 
         <!-- Progress -->
-        <StackPanel Grid.Row="4" Margin="0,8,0,0"
+        <StackPanel Grid.Row="5" Margin="0,8,0,0"
                     Visibility="{Binding IsDownloading, Converter={StaticResource BoolToVis}}">
             <ProgressBar IsIndeterminate="True" Height="4"/>
             <TextBlock Text="{Binding DownloadStatus}"
@@ -207,7 +230,7 @@
         </StackPanel>
 
         <!-- Buttons -->
-        <DockPanel Grid.Row="5" Margin="0,12,0,0" LastChildFill="False">
+        <DockPanel Grid.Row="6" Margin="0,12,0,0" LastChildFill="False">
             <Button DockPanel.Dock="Right" Content="Download"
                     Padding="14,4" FontSize="12"
                     Margin="6,0,0,0"

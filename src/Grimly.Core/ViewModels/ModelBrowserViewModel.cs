@@ -19,6 +19,7 @@ namespace Grimly.ViewModels;
 public partial class ModelBrowserViewModel : ObservableObject
 {
     private readonly IFoundryManager _foundryManager;
+    private readonly IExternalLlmProviderService? _externalProviders;
     private CancellationTokenSource? _downloadCts;
 
     /// <summary>Every model returned by <c>foundry model list --available</c>.</summary>
@@ -61,9 +62,105 @@ public partial class ModelBrowserViewModel : ObservableObject
 
     public event Action? RequestClose;
 
-    public ModelBrowserViewModel(IFoundryManager foundryManager)
+    public ModelBrowserViewModel(
+        IFoundryManager foundryManager,
+        IExternalLlmProviderService? externalProviders = null)
     {
         _foundryManager = foundryManager;
+        _externalProviders = externalProviders;
+
+        // Only installed providers can pull; the Foundry catalog above
+        // already covers Foundry downloads.
+        if (externalProviders is not null)
+        {
+            foreach (var p in externalProviders.Providers)
+            {
+                if (p.PullArgsTemplate is not null && externalProviders.IsInstalled(p))
+                    PullProviders.Add(p);
+            }
+            SelectedPullProvider = PullProviders.FirstOrDefault();
+        }
+    }
+
+    /// <summary>Installed providers that support CLI pulls. Empty = the
+    /// pull row hides.</summary>
+    public ObservableCollection<ExternalProvider> PullProviders { get; } = new();
+
+    [ObservableProperty]
+    private ExternalProvider? _selectedPullProvider;
+
+    [ObservableProperty]
+    private string _pullModelName = "";
+
+    public bool HasPullProviders => PullProviders.Count > 0;
+
+    /// <summary>Open the selected provider's catalog site in the browser —
+    /// none of these providers has an enumerable catalog API, so discovery
+    /// happens on their site and the name comes back here to pull.</summary>
+    [RelayCommand]
+    private void OpenCatalogSite()
+    {
+        var url = SelectedPullProvider?.CatalogUrl;
+        if (url is null) return;
+        try
+        {
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+            {
+                FileName = url,
+                UseShellExecute = true,
+            });
+        }
+        catch { }
+    }
+
+    /// <summary>Pull a model by name via the selected provider's CLI,
+    /// streaming its progress into the same status line the Foundry
+    /// download uses.</summary>
+    [RelayCommand]
+    private async Task PullExternalAsync()
+    {
+        if (_externalProviders is null || SelectedPullProvider is null || IsDownloading) return;
+        var provider = SelectedPullProvider;
+        var name = PullModelName.Trim();
+        if (string.IsNullOrEmpty(name)) return;
+
+        _downloadCts?.Cancel();
+        _downloadCts = new CancellationTokenSource();
+        IsDownloading = true;
+        DownloadStatus = $"Pulling {name} via {provider.DisplayLabel}…";
+        ErrorMessage = "";
+
+        var progress = new Progress<string>(line => DownloadStatus = line);
+
+        bool success;
+        try
+        {
+            success = await _externalProviders.PullModelAsync(provider, name, progress, _downloadCts.Token);
+        }
+        catch (OperationCanceledException)
+        {
+            IsDownloading = false;
+            DownloadStatus = "Cancelled.";
+            return;
+        }
+        catch (Exception ex)
+        {
+            ErrorMessage = $"Pull failed: {ex.Message}";
+            IsDownloading = false;
+            return;
+        }
+
+        IsDownloading = false;
+        if (!success)
+        {
+            ErrorMessage = string.IsNullOrEmpty(DownloadStatus)
+                ? $"Pull failed. Check the model name against {provider.DisplayLabel}'s catalog."
+                : $"Pull failed: {DownloadStatus}";
+            return;
+        }
+
+        DownloadedModelId = $"{provider.Prefix}:{name}";
+        RequestClose?.Invoke();
     }
 
     public async Task LoadCatalogAsync()

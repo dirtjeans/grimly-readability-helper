@@ -79,7 +79,7 @@ public partial class SettingsViewModel : ObservableObject
     /// window; on success we splice the downloaded model into the local
     /// list and select it. Kept as a method so the VM stays view-agnostic.
     /// </summary>
-    public ModelBrowserViewModel CreateModelBrowser() => new(_foundryManager);
+    public ModelBrowserViewModel CreateModelBrowser() => new(_foundryManager, _externalProviders);
 
     /// <summary>
     /// Called by the code-behind when the browser closes with a picked

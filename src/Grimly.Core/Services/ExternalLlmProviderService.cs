@@ -30,7 +30,13 @@ public sealed record ExternalProvider(
     // CLIs enumerate everything downloaded. Null = HTTP list is already
     // complete (Ollama).
     string? ListCliArgs = null,
-    Func<string, IEnumerable<string>>? ParseCliList = null);
+    Func<string, IEnumerable<string>>? ParseCliList = null,
+    // Remote discovery. None of these providers exposes an enumerable
+    // catalog API, so the browser links to where the catalog actually
+    // lives, and PullArgsTemplate ({0} = model name) fetches a model the
+    // user found there.
+    string? CatalogUrl = null,
+    string? PullArgsTemplate = null);
 
 public interface IExternalLlmProviderService
 {
@@ -80,6 +86,14 @@ public interface IExternalLlmProviderService
     /// missing ones show an Install link.
     /// </summary>
     bool IsInstalled(ExternalProvider provider);
+
+    /// <summary>
+    /// Download a model through the provider's CLI (`ollama pull …`,
+    /// `lms get …`, `geniex pull …`), streaming its output lines. Returns
+    /// true on exit 0. The model name is whatever the user found on the
+    /// provider's catalog site.
+    /// </summary>
+    Task<bool> PullModelAsync(ExternalProvider provider, string modelName, IProgress<string>? progress, CancellationToken ct = default);
 }
 
 public sealed class ExternalLlmProviderService : IExternalLlmProviderService
@@ -121,7 +135,9 @@ public sealed class ExternalLlmProviderService : IExternalLlmProviderService
                 "ollama",
                 Environment.ExpandEnvironmentVariables(@"%LOCALAPPDATA%\Programs\Ollama\ollama.exe"),
             ],
-            StartArgs: "serve"),
+            StartArgs: "serve",
+            CatalogUrl: "https://ollama.com/library",
+            PullArgsTemplate: "pull {0}"),
 
         // LM Studio's OpenAI-compatible /v1/models returns { "data": [ { "id": "…" } ] }.
         new ExternalProvider(
@@ -152,7 +168,11 @@ public sealed class ExternalLlmProviderService : IExternalLlmProviderService
                     .Select(e => e.GetProperty("modelKey").GetString() ?? "")
                     .Where(n => !string.IsNullOrWhiteSpace(n))
                     .ToArray();
-            }),
+            },
+            // LM Studio's discovery is Hugging Face; `lms get` fetches by
+            // name/query. --yes auto-accepts the best match.
+            CatalogUrl: "https://lmstudio.ai/models",
+            PullArgsTemplate: "get {0} --yes"),
 
         // Qualcomm GenieX — `geniex serve` exposes an OpenAI-compatible
         // server on port 18181. Lets Snapdragon users run NPU-optimized
@@ -198,7 +218,9 @@ public sealed class ExternalLlmProviderService : IExternalLlmProviderService
                     }
                 }
                 return ids;
-            }),
+            },
+            CatalogUrl: "https://aihub.qualcomm.com/",
+            PullArgsTemplate: "pull {0}"),
     };
 
     /// <summary>Shared extractor for OpenAI-compatible "/v1/models"
@@ -367,6 +389,60 @@ public sealed class ExternalLlmProviderService : IExternalLlmProviderService
                         return true;
                 }
                 catch { /* malformed PATH entry */ }
+            }
+        }
+        return false;
+    }
+
+    public async Task<bool> PullModelAsync(ExternalProvider p, string modelName, IProgress<string>? progress, CancellationToken ct = default)
+    {
+        if (p.PullArgsTemplate is null || p.StartExeCandidates is null) return false;
+        if (string.IsNullOrWhiteSpace(modelName)) return false;
+
+        // Guard against argument injection through the free-text model
+        // name — provider model ids never legitimately contain quotes or
+        // shell-significant whitespace beyond none at all.
+        var name = modelName.Trim();
+        if (name.Contains('"') || name.Contains(' ')) return false;
+
+        foreach (var exe in p.StartExeCandidates)
+        {
+            try
+            {
+                var psi = new System.Diagnostics.ProcessStartInfo
+                {
+                    FileName = exe,
+                    Arguments = string.Format(p.PullArgsTemplate, name),
+                    UseShellExecute = false,
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true,
+                    CreateNoWindow = true,
+                };
+                using var process = new System.Diagnostics.Process { StartInfo = psi };
+                process.OutputDataReceived += (_, e) => { if (!string.IsNullOrWhiteSpace(e.Data)) progress?.Report(e.Data!); };
+                process.ErrorDataReceived += (_, e) => { if (!string.IsNullOrWhiteSpace(e.Data)) progress?.Report(e.Data!); };
+                if (!process.Start()) continue;
+                process.BeginOutputReadLine();
+                process.BeginErrorReadLine();
+
+                try
+                {
+                    await process.WaitForExitAsync(ct);
+                }
+                catch (OperationCanceledException)
+                {
+                    try { process.Kill(entireProcessTree: true); } catch { }
+                    throw;
+                }
+                return process.ExitCode == 0;
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch
+            {
+                // Executable not found at this candidate — try the next.
             }
         }
         return false;
