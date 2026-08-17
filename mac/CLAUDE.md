@@ -2,7 +2,20 @@
 
 You're picking up mid-project. The user is Kenneth Spencer Brown; the project is **Grimly**, a local-LLM writing assistant (Windows + macOS) that runs on local LLM runtimes. Windows is the primary platform. **Mac status: v1.1.0/v1.2.0 features were ported in commit `ad12d49` (2026-08-05). Windows has since shipped v1.3.0 — see the next section for what to port and what to skip.**
 
-## Catch-up as of 2026-08-13 — Windows is at v1.3.0
+## Catch-up as of 2026-08-16 — Windows is at v1.3.3
+
+Latest release: <https://github.com/dirtjeans/grimly-readability-helper/releases/tag/v1.3.3> — **`Grimly.app.zip` is still missing from every v1.3.x release; build one and attach it to the newest tag.**
+
+Windows shipped v1.3.1–v1.3.3 on top of the v1.3.0 list below. Port these too:
+
+1. **Full provider inventories (v1.3.1)** — LM Studio's `/v1/models` only lists *loaded* models; discovery now unions the HTTP list with `lms ls --json` (skip `"type":"embedding"`, id = `modelKey`) so all downloaded models appear even when the server is idle. Ollama needs nothing (its `/api/tags` is already complete). Provider icons also went into the catalog browser (converter accepts both a plain id string and the catalog row object).
+2. **Pull-by-name (v1.3.2)** — no external provider has an enumerable remote-catalog API, so the model browser adds a "Get more:" row: provider dropdown (installed only) + "Browse catalog ↗" link (ollama.com/library, lmstudio.ai/models) + a name box whose Pull runs `ollama pull {name}` / `lms get {name} --yes` with output streamed into the shared download status line. Guard the name against argument injection (reject spaces/quotes).
+3. **Response hygiene (v1.3.3)** — see `FoundryLocalClient.cs` (`StripMetaPreamble`, `LooksLikePromptEcho`, `LooksLikeInstructionParaphrase`, `LooksLikeModelVerdict`). Small models leak instructions into results four ways: verbatim prompt echo, paraphrased rules, verdicts replacing the text ("No corrections are needed"), and announcer preambles ("The revised text is: :"). The chain: strip preambles (keep the rewrite), then reject echo (any 20+ char prompt line found in the response), paraphrase (word-provenance test — response vocabulary drawn from the prompt rather than the user's text), and verdicts (short response + editing vocabulary absent from the user's text). Rejection returns the original text so the UI shows its normal "No changes suggested." Port this to the Mac client — it protects every backend, and the Mac's phi-3.5/qwen models exhibit the same behaviors.
+4. **Expressive button motion (v1.3.3)** — Material 3 Expressive-flavored micro-interactions on all popup buttons: 4% hover lift (100 ms ease-out), press squish to 96% (pills also sharpen corner radius 12→7), springy release with overshoot (350 ms, BackEase amplitude 0.6). In SwiftUI: `scaleEffect` driven by hover/pressed state with `.spring(response: 0.35, dampingFraction: 0.6)`, corner radius animated on the pill background. Keep it subtle — the goal was "touches of delight," not full Material compliance.
+
+Windows-only from this stretch (skip): GenieX runtime-aware NPU tagging (Snapdragon), the winget one-click installs (use Homebrew/links if wanted), Aion text-first prompt reordering (unless a roleless single-string backend appears on Mac).
+
+## Earlier: catch-up as of 2026-08-13 — Windows at v1.3.0
 
 Release: <https://github.com/dirtjeans/grimly-readability-helper/releases/tag/v1.3.0> (Windows binaries attached; **`Grimly.app.zip` slot is empty — build and attach one** with `gh release upload v1.3.0 Grimly.app.zip --clobber`).
 
