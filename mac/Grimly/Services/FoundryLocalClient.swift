@@ -5,10 +5,17 @@ class FoundryLocalClient {
     /// Optional — used only for retry-with-endpoint-refresh. Kept optional
     /// so a smaller test harness can construct a client without a manager.
     private let foundryManager: FoundryManager?
+    /// Optional external providers (Ollama, LM Studio). When the selected
+    /// model carries a provider prefix ("ollama:llama3"), requests route to
+    /// that provider's OpenAI-compatible endpoint instead of Foundry.
+    private let externalProviders: ExternalLlmProviderService?
 
-    init(settingsService: SettingsService, foundryManager: FoundryManager? = nil) {
+    init(settingsService: SettingsService,
+         foundryManager: FoundryManager? = nil,
+         externalProviders: ExternalLlmProviderService? = nil) {
         self.settingsService = settingsService
         self.foundryManager = foundryManager
+        self.externalProviders = externalProviders
     }
 
     /// Prepended to every system prompt. Qwen (and to a lesser extent Phi)
@@ -50,11 +57,11 @@ class FoundryLocalClient {
             ]
             guard transient.contains(urlErr.code) else { throw urlErr }
 
-            // Ask the manager to re-discover Foundry's current endpoint —
-            // it may have moved to a new port on a silent restart. This
-            // updates settings if the endpoint changed. If we don't have a
-            // manager (test harness), skip the refresh and just retry.
-            if let mgr = foundryManager {
+            // Endpoint refresh only makes sense for Foundry (external
+            // providers have fixed localhost ports). Skip it when the
+            // selected model is a provider model.
+            if externalProviders?.matchProvider(settingsService.load().modelName) == nil,
+               let mgr = foundryManager {
                 let (running, liveEndpoint) = await mgr.checkServiceStatus()
                 if running, let liveEndpoint {
                     var s = settingsService.load()
@@ -94,8 +101,22 @@ class FoundryLocalClient {
             finalTemp = min(max(baseTemp + offset, 0.0), 1.0)
         }
 
+        // Route: a provider-prefixed model ("ollama:llama3") goes to that
+        // provider's base URL with the prefix stripped off the model id;
+        // a plain model id goes to Foundry's endpoint from settings.
+        var modelId = settings.modelName
+        var endpoint = settings.foundryEndpoint.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        var chatPath = "/v1/chat/completions"
+        if let provider = externalProviders?.matchProvider(modelId) {
+            if let colon = modelId.firstIndex(of: ":") {
+                modelId = String(modelId[modelId.index(after: colon)...])
+            }
+            endpoint = provider.baseURL.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+            chatPath = provider.chatEndpoint
+        }
+
         let request = ChatCompletionRequest(
-            model: settings.modelName,
+            model: modelId,
             messages: [
                 .system(systemPrompt),
                 .user(originalText)
@@ -104,8 +125,7 @@ class FoundryLocalClient {
             maxTokens: settings.maxTokens
         )
 
-        let endpoint = settings.foundryEndpoint.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
-        guard let url = URL(string: "\(endpoint)/v1/chat/completions") else {
+        guard let url = URL(string: "\(endpoint)\(chatPath)") else {
             throw URLError(.badURL)
         }
 
@@ -121,6 +141,123 @@ class FoundryLocalClient {
         }
 
         let result = try JSONDecoder().decode(ChatCompletionResponse.self, from: data)
-        return result.choices.first?.message.content.trimmingCharacters(in: .whitespacesAndNewlines) ?? originalText
+        let reply = result.choices.first?.message.content.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !reply.isEmpty else { return originalText }
+
+        // Response hygiene. Small on-device models (phi-3.5, qwen) leak
+        // instructions into results four ways; scrub/reject each. A rejected
+        // response returns the original text, which the popup reports as
+        // "No changes suggested."
+        let stripped = ResponseHygiene.stripMetaPreamble(reply)
+        guard !stripped.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return originalText }
+        if ResponseHygiene.looksLikePromptEcho(stripped, systemPrompt: systemPrompt) { return originalText }
+        if ResponseHygiene.looksLikeInstructionParaphrase(stripped, systemPrompt: systemPrompt, originalText: originalText) { return originalText }
+        if ResponseHygiene.looksLikeModelVerdict(stripped, originalText: originalText) { return originalText }
+        return stripped
+    }
+}
+
+/// Guards against small on-device models leaking their instructions into the
+/// output. Ported 1:1 from the Windows `FoundryLocalClient` hygiene methods
+/// (StripMetaPreamble / LooksLikePromptEcho / LooksLikeInstructionParaphrase
+/// / LooksLikeModelVerdict). Kept as a standalone enum so the StyleHelper
+/// client can reuse the exact same logic.
+enum ResponseHygiene {
+
+    // Words of 4+ letters — short function words (the/is/and) appear in
+    // everything and would wash out the provenance signal.
+    private static let wordRegex = try! NSRegularExpression(pattern: "[a-z']{4,}")
+
+    /// Strips announcer preambles the model wraps around an otherwise-good
+    /// rewrite — "The revised text is: :", "Here's the rewritten version:",
+    /// "Sure, here is the edited text -". KEEPS the rewrite that follows.
+    static func stripMetaPreamble(_ response: String) -> String {
+        let trimmed = String(response.drop(while: { $0 == " " || $0 == "\t" || $0 == "\n" || $0 == "\r" }))
+        let ns = trimmed as NSString
+        let full = NSRange(location: 0, length: ns.length)
+        var s = trimmed
+        if let m = metaPreambleRegex.firstMatch(in: trimmed, range: full), m.range.location == 0 {
+            s = ns.replacingCharacters(in: m.range, with: "")
+        }
+        // Mop up stragglers the model sometimes doubles after the preamble
+        // (the "…is: :" case) plus any opening quote it added.
+        return String(s.drop(while: { ":-–  \r\n\"\u{201C}".contains($0) }))
+    }
+
+    // The literal “ (U+201C) is embedded directly: in a Swift raw string
+    // `\u{201C}` would NOT be interpreted, and ICU regex doesn't accept the
+    // `\u{...}` escape form either.
+    private static let metaPreambleRegex = try! NSRegularExpression(
+        pattern: #"^["“']?\s*(?:sure[,.!]?\s*)?(?:here(?:'s|\s+is)\s+)?(?:the\s+|your\s+|a\s+)?(?:revised|rewritten|edited|updated|corrected|improved|conversational)\s+(?:text|version)(?:\s+is)?\s*[:\-–]+\s*"#,
+        options: [.caseInsensitive])
+
+    /// True when any substantive (20+ char) line of the system prompt shows
+    /// up verbatim in the response — instruction text never legitimately
+    /// belongs in edited user text.
+    static func looksLikePromptEcho(_ response: String, systemPrompt: String) -> Bool {
+        let lowerResponse = response.lowercased()
+        for rawLine in systemPrompt.split(separator: "\n", omittingEmptySubsequences: false) {
+            let line = rawLine.trimmingCharacters(in: .whitespaces)
+            if line.count < 20 { continue }
+            if lowerResponse.contains(line.lowercased()) { return true }
+        }
+        return false
+    }
+
+    /// Detects instruction paraphrase via vocabulary provenance: a genuine
+    /// rewrite is assembled mostly from the user's words; a paraphrased
+    /// rulebook is assembled from the prompt's words.
+    static func looksLikeInstructionParaphrase(_ response: String, systemPrompt: String, originalText: String) -> Bool {
+        let respTokens = words(in: response)
+        if respTokens.count < 12 { return false }  // verdict detector owns tiny responses
+
+        let promptSet = Set(words(in: systemPrompt))
+        let textSet = Set(words(in: originalText))
+
+        let promptHits = respTokens.filter { promptSet.contains($0) }.count
+        let textHits = respTokens.filter { textSet.contains($0) }.count
+        let promptFrac = Double(promptHits) / Double(respTokens.count)
+        let textFrac = Double(textHits) / Double(respTokens.count)
+
+        // Require both a strong absolute prompt share and a clear margin over
+        // the text share so heavy rewrites (which add new wording) stay safe.
+        return promptFrac > 0.55 && promptFrac > textFrac * 1.5
+    }
+
+    /// Detects verdict responses — the model narrating a judgment ("The text
+    /// is now grammatically correct…") instead of returning the text. Both
+    /// signals required: structural collapse + editing vocabulary the user's
+    /// text doesn't use.
+    static func looksLikeModelVerdict(_ response: String, originalText: String) -> Bool {
+        let collapsed =
+            (originalText.count >= 240 && response.count < originalText.count / 3)
+            || response.count <= 160
+        if !collapsed { return false }
+
+        let lowerResponse = response.lowercased()
+        let lowerOriginal = originalText.lowercased()
+        for term in verdictVocabulary {
+            if lowerResponse.contains(term) && !lowerOriginal.contains(term) { return true }
+        }
+        return false
+    }
+
+    /// Editing-meta vocabulary marking a response as being ABOUT the text
+    /// rather than the text. Stored lowercase for case-insensitive contains.
+    private static let verdictVocabulary: [String] = [
+        "grammatical", "grammatically", "spelling error", "punctuation error",
+        "no corrections", "no changes", "no edits", "no revisions",
+        "revisions are complete", "revision is complete", "edits are complete",
+        "already well-written", "already correct", "well-written and",
+        "free of errors", "error-free", "the text is", "your text is",
+        "text has been", "nothing to correct", "does not require any",
+        "doesn't require any",
+    ]
+
+    private static func words(in text: String) -> [String] {
+        let lower = text.lowercased()
+        let ns = lower as NSString
+        let matches = wordRegex.matches(in: lower, range: NSRange(location: 0, length: ns.length))
+        return matches.map { ns.substring(with: $0.range) }
     }
 }

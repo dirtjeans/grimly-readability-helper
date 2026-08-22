@@ -44,6 +44,7 @@
 		A10037 /* APStyleCodePass.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10037; };
 		A10038 /* APStylePipeline.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10038; };
 		A10039 /* ConnectionMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10039; };
+		A10040 /* ExternalLlmProviderService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10040; };
 		A20001 /* EditingMode.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10004; };
 		A20002 /* ChatCompletionModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10006; };
 		A20003 /* SettingsService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10007; };
@@ -122,6 +123,7 @@
 		B10037 /* APStyleCodePass.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = APStyleCodePass.swift; sourceTree = "<group>"; };
 		B10038 /* APStylePipeline.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = APStylePipeline.swift; sourceTree = "<group>"; };
 		B10039 /* ConnectionMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectionMonitor.swift; sourceTree = "<group>"; };
+		B10040 /* ExternalLlmProviderService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExternalLlmProviderService.swift; sourceTree = "<group>"; };
 		B20001 /* StyleHelperApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StyleHelperApp.swift; sourceTree = "<group>"; };
 		B20002 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
 		B20003 /* AppSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppSettings.swift; sourceTree = "<group>"; };
@@ -225,6 +227,7 @@
 				B10037 /* APStyleCodePass.swift */,
 				B10038 /* APStylePipeline.swift */,
 				B10039 /* ConnectionMonitor.swift */,
+				B10040 /* ExternalLlmProviderService.swift */,
 			);
 			path = Services;
 			sourceTree = "<group>";
@@ -489,6 +492,7 @@
 				A10037 /* APStyleCodePass.swift in Sources */,
 				A10038 /* APStylePipeline.swift in Sources */,
 				A10039 /* ConnectionMonitor.swift in Sources */,
+				A10040 /* ExternalLlmProviderService.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -605,7 +609,7 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MARKETING_VERSION = 1.2.0;
+				MARKETING_VERSION = 1.3.3;
 				PRODUCT_BUNDLE_IDENTIFIER = com.grimly.app;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;
@@ -629,7 +633,7 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MARKETING_VERSION = 1.2.0;
+				MARKETING_VERSION = 1.3.3;
 				PRODUCT_BUNDLE_IDENTIFIER = com.grimly.app;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;

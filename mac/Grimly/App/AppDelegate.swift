@@ -5,10 +5,15 @@ import UserNotifications
 
 class AppDelegate: NSObject, NSApplicationDelegate {
     private let settingsService = SettingsService()
-    private lazy var foundryManager = FoundryManager(settingsService: settingsService)
+    /// External local-LLM providers (Ollama, LM Studio). Shared by the
+    /// manager (warm-up/status guards), the client (request routing), and
+    /// the settings VM (model discovery + pull-by-name).
+    private let externalProviders = ExternalLlmProviderService()
+    private lazy var foundryManager = FoundryManager(settingsService: settingsService, externalProviders: externalProviders)
     /// `FoundryLocalClient` gets the manager so it can auto-retry a request
-    /// with a refreshed endpoint if Foundry silently moved to a new port.
-    private lazy var foundryClient = FoundryLocalClient(settingsService: settingsService, foundryManager: foundryManager)
+    /// with a refreshed endpoint if Foundry silently moved to a new port,
+    /// and the providers so provider-prefixed models route correctly.
+    private lazy var foundryClient = FoundryLocalClient(settingsService: settingsService, foundryManager: foundryManager, externalProviders: externalProviders)
     /// App-level connection monitor. Owns reconnect logic that previously
     /// lived in the popup VM — which meant reconnects stopped whenever the
     /// popup was closed. Now the monitor keeps polling for the lifetime of
@@ -145,6 +150,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             vm.previousApp = previousApp
             vm.setCapturedText(text)
             vm.refreshConnectionStatus()
+            vm.onOpenSettings = { [weak self] in Task { @MainActor in self?.showSettings() } }
 
             let popup = EditorPopupWindow(viewModel: vm, opacity: settings.popupOpacity)
             popup.showNearCursor()
@@ -369,6 +375,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         vm.previousApp = previousApp
         vm.setCapturedText(text)
         vm.refreshConnectionStatus()
+        vm.onOpenSettings = { [weak self] in Task { @MainActor in self?.showSettings() } }
 
         let popup = EditorPopupWindow(viewModel: vm, opacity: settings.popupOpacity)
         popup.showAnimatedFrom(point: iconOrigin)
@@ -402,6 +409,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             vm.previousApp = previousApp
             vm.setCapturedText(text)
             vm.refreshConnectionStatus()
+            vm.onOpenSettings = { [weak self] in Task { @MainActor in self?.showSettings() } }
 
             let popup = EditorPopupWindow(viewModel: vm, opacity: settings.popupOpacity)
             popup.showNearCursor()
@@ -421,7 +429,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
 
-        let vm = SettingsViewModel(settingsService: settingsService, foundryManager: foundryManager)
+        let vm = SettingsViewModel(settingsService: settingsService, foundryManager: foundryManager, externalProviders: externalProviders)
         self.settingsViewModel = vm
 
         let settingsView = SettingsView(viewModel: vm)
@@ -443,6 +451,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                     self?.hotKeyService.unregister()
                     self?.registerHotkey()
                     self?.updateSelectionWatcher()
+                    // Re-probe so any open popup's "Connected · model" line
+                    // reflects a model change made in Settings, rather than
+                    // showing the stale name.
+                    Task { @MainActor in await self?.connectionMonitor.refresh() }
                 }
             }
         }

@@ -83,6 +83,10 @@ class EditorPopupViewModel: ObservableObject {
     var previousApp: NSRunningApplication?
     var onRequestClose: (() -> Void)?
     var onReviewSegmentsChanged: (() -> Void)?
+    /// Opens the Settings window (wired by AppDelegate). Lets the popup's
+    /// gear button jump straight to Settings — the menu-bar route was too
+    /// buried.
+    var onOpenSettings: (() -> Void)?
 
     var isCustomMode: Bool { selectedMode == .customPrompt }
 

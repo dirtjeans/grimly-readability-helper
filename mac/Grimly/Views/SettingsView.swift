@@ -54,6 +54,63 @@ struct SettingsView: View {
                     ProgressView()
                         .scaleEffect(0.7)
                 }
+
+                // Blurb — models already on this Mac switch instantly;
+                // Foundry downloads can take minutes on first fetch.
+                Text("Pick a model. Foundry Local downloads can take several minutes on the first fetch; models already on this Mac — cached, or served by Ollama or LM Studio — switch instantly.")
+                    .font(.system(size: 10))
+                    .foregroundColor(Color(white: 0.55))
+                    .fixedSize(horizontal: false, vertical: true)
+
+                Text(viewModel.providerHint)
+                    .font(.system(size: 10))
+                    .italic()
+                    .foregroundColor(Color(white: 0.5))
+                    .fixedSize(horizontal: false, vertical: true)
+
+                // Pull-by-name row — only when at least one provider CLI is
+                // installed. Provider dropdown + name box + Pull + browse link.
+                if !viewModel.installedProviderPrefixes.isEmpty {
+                    HStack(spacing: 6) {
+                        Text("Get more:")
+                            .font(.system(size: 11))
+                            .foregroundColor(Color(white: 0.55))
+
+                        Picker("", selection: $viewModel.pullProviderPrefix) {
+                            ForEach(viewModel.installedProviderPrefixes, id: \.self) { p in
+                                Text(p).tag(p)
+                            }
+                        }
+                        .labelsHidden()
+                        .frame(width: 100)
+
+                        TextField("model name", text: $viewModel.pullModelName)
+                            .textFieldStyle(.roundedBorder)
+                            .frame(minWidth: 120)
+
+                        Button("Pull") { viewModel.pullModel() }
+                            .font(.system(size: 11))
+                            .disabled(viewModel.isPulling || viewModel.pullModelName.trimmingCharacters(in: .whitespaces).isEmpty)
+
+                        if let url = viewModel.pullCatalogURL {
+                            Link("Browse ↗", destination: url)
+                                .font(.system(size: 11))
+                        }
+                    }
+
+                    if !viewModel.pullStatus.isEmpty {
+                        HStack(spacing: 6) {
+                            if viewModel.isPulling {
+                                ProgressView().scaleEffect(0.5).frame(width: 12, height: 12)
+                            }
+                            Text(viewModel.pullStatus)
+                                .font(.system(size: 10))
+                                .foregroundColor(Color(white: 0.55))
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                        }
+                    }
+                }
             }
 
             // Hotkey

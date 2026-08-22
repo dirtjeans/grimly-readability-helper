@@ -6,17 +6,26 @@ struct EditorPopupView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             // Title bar
-            HStack {
+            HStack(spacing: 10) {
                 Text("Grimly")
                     .font(.system(size: 14, weight: .semibold))
                     .foregroundColor(Color(white: 0.8))
                 Spacer()
+                // Gear → Settings. The menu-bar route was too buried; this
+                // opens Settings directly from the popup.
+                Button(action: { viewModel.onOpenSettings?() }) {
+                    Image(systemName: "gearshape.fill")
+                        .font(.system(size: 13))
+                        .foregroundColor(Color(white: 0.4))
+                }
+                .buttonStyle(ExpressiveButtonStyle())
+                .help("Settings")
                 Button(action: { viewModel.dismiss() }) {
                     Image(systemName: "xmark.circle.fill")
                         .font(.system(size: 14))
                         .foregroundColor(Color(white: 0.4))
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(ExpressiveButtonStyle())
                 .help("Close (Esc)")
             }
             .padding(.bottom, 8)
@@ -59,7 +68,7 @@ struct EditorPopupView: View {
                             .stroke(Color(red: 0.90, green: 0.50, blue: 0.20), lineWidth: 1.5)
                     )
             }
-            .buttonStyle(.plain)
+            .buttonStyle(ExpressiveButtonStyle())
             .padding(.bottom, 8)
             .disabled(viewModel.isLoading || viewModel.workingText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             .help("Rewrite this text in AP Stylebook style")
@@ -92,7 +101,7 @@ struct EditorPopupView: View {
                     .background(Color(red: 0.42, green: 0.19, blue: 0.19))
                     .foregroundColor(Color(white: 0.87))
                     .cornerRadius(6)
-                    .buttonStyle(.plain)
+                    .buttonStyle(ExpressiveButtonStyle())
                 }
             }
             .padding(.bottom, 4)
@@ -188,7 +197,7 @@ struct EditorPopupView: View {
                     .background(Color(red: 0.18, green: 0.42, blue: 0.18))
                     .foregroundColor(Color(white: 0.87))
                     .cornerRadius(6)
-                    .buttonStyle(.plain)
+                    .buttonStyle(ExpressiveButtonStyle())
 
                     Button("Reject All") {
                         viewModel.rejectAllChanges()
@@ -199,7 +208,7 @@ struct EditorPopupView: View {
                     .background(Color(red: 0.42, green: 0.19, blue: 0.19))
                     .foregroundColor(Color(white: 0.87))
                     .cornerRadius(6)
-                    .buttonStyle(.plain)
+                    .buttonStyle(ExpressiveButtonStyle())
                 }
                 .padding(.bottom, 4)
 
@@ -255,7 +264,7 @@ struct EditorPopupView: View {
                 .background(Color(red: 0.18, green: 0.49, blue: 0.18))
                 .foregroundColor(.white)
                 .cornerRadius(6)
-                .buttonStyle(.plain)
+                .buttonStyle(ExpressiveButtonStyle())
 
                 Button("Copy") {
                     viewModel.copyResult()
@@ -266,7 +275,7 @@ struct EditorPopupView: View {
                 .background(Color(white: 0.33))
                 .foregroundColor(.white)
                 .cornerRadius(6)
-                .buttonStyle(.plain)
+                .buttonStyle(ExpressiveButtonStyle())
 
                 Button("Dismiss") {
                     viewModel.dismiss()
@@ -277,7 +286,7 @@ struct EditorPopupView: View {
                 .background(Color(white: 0.27))
                 .foregroundColor(Color(white: 0.8))
                 .cornerRadius(6)
-                .buttonStyle(.plain)
+                .buttonStyle(ExpressiveButtonStyle())
             }
             .padding(.top, 4)
         }
@@ -463,7 +472,7 @@ struct ViolationsPanel: View {
                         .background(Color(white: 0.30))
                         .foregroundColor(.white)
                         .cornerRadius(4)
-                        .buttonStyle(.plain)
+                        .buttonStyle(ExpressiveButtonStyle())
                         .help("Apply all mechanical fixes — review with accept/reject")
                 }
             }

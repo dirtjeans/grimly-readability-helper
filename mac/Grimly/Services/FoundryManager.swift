@@ -2,14 +2,36 @@ import Foundation
 
 class FoundryManager {
     private let settingsService: SettingsService
+    /// Optional external providers. When set, Foundry warm-up / status /
+    /// reconnect defer to a provider whenever the selected model is one of
+    /// theirs — otherwise Foundry would overwrite the user's provider model
+    /// choice with a Foundry model ("my model keeps reverting" bug).
+    private let externalProviders: ExternalLlmProviderService?
 
-    init(settingsService: SettingsService) {
+    init(settingsService: SettingsService, externalProviders: ExternalLlmProviderService? = nil) {
         self.settingsService = settingsService
+        self.externalProviders = externalProviders
+    }
+
+    /// True when the currently-selected model belongs to an external
+    /// provider (prefix matches a known provider), so Foundry-specific
+    /// paths should stand down.
+    private func isNonFoundryModel(_ modelName: String) -> Bool {
+        externalProviders?.matchProvider(modelName) != nil
     }
 
     // MARK: - Public API
 
     func ensureRunning() async -> (success: Bool, endpoint: String?, modelId: String?) {
+        // External-model guard: if the user picked an Ollama / LM Studio
+        // model, make that provider's server reachable and DON'T touch the
+        // Foundry endpoint or overwrite the model selection.
+        let selected = settingsService.load().modelName
+        if let provider = externalProviders?.matchProvider(selected) {
+            let ok = await externalProviders?.ensureRunning(provider) ?? false
+            return (ok, nil, selected)
+        }
+
         guard let endpoint = await ensureServiceRunning() else {
             return (false, nil, nil)
         }
@@ -124,11 +146,20 @@ class FoundryManager {
     }
 
     func checkConnection() async -> ConnectionStatus {
+        let settings = settingsService.load()
+
+        // External-model guard: check the provider's server, not Foundry, so
+        // a provider model doesn't perpetually read as "model not loaded"
+        // and trigger reconnect churn.
+        if let provider = externalProviders?.matchProvider(settings.modelName) {
+            return await externalProviders?.ensureRunning(provider) == true
+                ? .connected : .foundryNotRunning
+        }
+
         if !isFoundryInstalled() {
             return .foundryNotInstalled
         }
 
-        let settings = settingsService.load()
         let endpoint = settings.foundryEndpoint
 
         guard let url = URL(string: "\(endpoint)/v1/models") else {

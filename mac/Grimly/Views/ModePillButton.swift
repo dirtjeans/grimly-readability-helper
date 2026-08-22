@@ -37,6 +37,33 @@ struct ModePillButton: View {
                              ? Color(red: 0.63, green: 0.85, blue: 0.63)
                              : .white)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(ExpressiveButtonStyle())
+    }
+}
+
+/// Material 3 Expressive-flavored micro-interaction: a 4% hover lift, a
+/// press "squish" to 96%, and a springy release with a touch of overshoot.
+/// Adds no chrome of its own (like `.plain`), so it's a drop-in on buttons
+/// that draw their own background. Deliberately subtle — "touches of
+/// delight," not full Material compliance.
+struct ExpressiveButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        ExpressiveButtonBody(configuration: configuration)
+    }
+}
+
+/// Body view for `ExpressiveButtonStyle`. Broken out as a top-level view
+/// (not nested) so it can hold the `@State` hover flag — a ButtonStyle's
+/// `makeBody` result can't itself carry state.
+private struct ExpressiveButtonBody: View {
+    let configuration: ButtonStyleConfiguration
+    @State private var hovering = false
+
+    var body: some View {
+        configuration.label
+            .scaleEffect(configuration.isPressed ? 0.96 : (hovering ? 1.04 : 1.0))
+            .animation(.spring(response: 0.35, dampingFraction: 0.6), value: configuration.isPressed)
+            .animation(.easeOut(duration: 0.1), value: hovering)
+            .onHover { hovering = $0 }
     }
 }
